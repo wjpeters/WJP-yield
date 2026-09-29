@@ -99,6 +99,24 @@ export function createStore(dir) {
           .map((i) => i.id),
       },
     ]);
+  // One-time, non-destructive migration. A deliberately removed provider stays removed.
+  if (!get("migration:alpaca-v1", false)) {
+    const providers = get("providers", []);
+    if (!providers.some((p) => p.type === "alpaca") && providers.length < 20)
+      put("providers", [
+        ...providers,
+        {
+          id: randomUUID(),
+          type: "alpaca",
+          name: "Alpaca",
+          priority: 40,
+          enabled: false,
+          rpm: 120,
+          feed: "iex",
+        },
+      ]);
+    put("migration:alpaca-v1", true);
+  }
   return {
     db,
     get,
@@ -107,7 +125,20 @@ export function createStore(dir) {
     decrypt,
     id: randomUUID,
     providers: () => get("providers", []),
-    instruments: () => [...catalog, ...get("instruments", [])],
+    instruments: () =>
+      [...catalog, ...get("instruments", [])].map((i) => ({
+        ...i,
+        mappings: {
+          ...i.mappings,
+          ...(["stock", "etf"].includes(i.assetClass) &&
+          i.currency === "USD" &&
+          ["NASDAQ", "NYSE", "NYSEARCA", "AMEX", "ARCA", "BATS"].includes(
+            i.exchange.toUpperCase(),
+          )
+            ? { alpaca: i.symbol }
+            : {}),
+        },
+      })),
     watchlists: () => get("watchlists", []),
     publicProvider: (p) => {
       const { secret, ...safe } = p;

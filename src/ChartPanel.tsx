@@ -15,16 +15,16 @@ import {
   CandlestickChart,
   ChartNoAxesCombined,
   Maximize2,
-  Minus,
   RefreshCw,
-  Trash2,
   Database,
   Star,
 } from "lucide-react";
+import DrawingTools, { type DrawingChart } from "./DrawingTools";
 import { api, price, percent, time } from "./api";
 import { sma, ema, rsi } from "./indicators";
 import { Dot, SymbolMark } from "./ui";
 import type { Instrument, Quote, Candle, History } from "./types";
+const EMPTY_CANDLES: Candle[] = [];
 type Props = {
   instrument: Instrument;
   quote: Quote | null;
@@ -55,8 +55,8 @@ export default function ChartPanel({
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
   const [hover, setHover] = useState<Candle | null>(null);
-  const [drawing, setDrawing] = useState(false);
-  const [levels, setLevels] = useState(0);
+  const [drawingChart, setDrawingChart] = useState<DrawingChart | null>(null);
+  const canvasWrap = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null),
     panel = useRef<HTMLElement>(null),
     chart = useRef<IChartApi | null>(null),
@@ -64,11 +64,8 @@ export default function ChartPanel({
     volume = useRef<ISeriesApi<"Histogram"> | null>(null),
     lines = useRef<Record<string, ISeriesApi<"Line">>>({}),
     priceLine = useRef<IPriceLine | null>(null),
-    drawn = useRef<IPriceLine[]>([]),
-    drawingRef = useRef(false),
     dataRef = useRef<Candle[]>([]),
     fitKey = useRef("");
-  drawingRef.current = drawing;
   dataRef.current = history?.candles ?? [];
   useEffect(() => {
     localStorage.setItem("yield-interval", interval);
@@ -218,28 +215,12 @@ export default function ChartPanel({
       const candle = dataRef.current.find((d) => d.time === e.time);
       setHover(candle ?? null);
     });
-    c.subscribeClick((e) => {
-      if (!drawingRef.current || !e.point) return;
-      const value = series.coordinateToPrice(e.point.y);
-      if (value == null) return;
-      drawn.current.push(
-        series.createPriceLine({
-          price: value,
-          color: "#d4f77d",
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: "Niveau",
-        }),
-      );
-      setLevels(drawn.current.length);
-      setDrawing(false);
-    });
     fitKey.current = "";
     priceLine.current = null;
-    drawn.current = [];
-    setLevels(0);
+    const context = { chart: c, series, alive: true };
+    setDrawingChart(context);
     return () => {
+      context.alive = false;
       c.remove();
       chart.current = null;
       main.current = null;
@@ -305,11 +286,6 @@ export default function ChartPanel({
       });
   }, [q, history, mode, indicators]);
   useEffect(() => {
-    if (main.current) {
-      drawn.current.forEach((l) => main.current!.removePriceLine(l));
-      drawn.current = [];
-      setLevels(0);
-    }
     setHover(null);
   }, [i.id, interval]);
   const candle = hover ?? history?.candles.at(-1);
@@ -406,27 +382,6 @@ export default function ChartPanel({
         </div>
         <div className="toolbar-end">
           <button
-            className={`icon-button ${drawing ? "selected-tool" : ""}`}
-            onClick={() => setDrawing(!drawing)}
-            aria-label="Horizontaal prijsniveau tekenen"
-            title="Klik daarna in de grafiek om een prijsniveau te plaatsen"
-          >
-            <Minus size={18} />
-          </button>
-          {levels > 0 && (
-            <button
-              className="icon-button"
-              aria-label="Prijsniveaus wissen"
-              onClick={() => {
-                drawn.current.forEach((l) => main.current?.removePriceLine(l));
-                drawn.current = [];
-                setLevels(0);
-              }}
-            >
-              <Trash2 size={15} />
-            </button>
-          )}
-          <button
             className="icon-button"
             aria-label="Grafiek passend maken"
             title="Grafiek passend maken"
@@ -459,11 +414,18 @@ export default function ChartPanel({
             Grafiek: {history.provider} · fallback
           </span>
         )}
-        {drawing && (
-          <span className="positive">Klik om een niveau te plaatsen</span>
-        )}
       </div>
-      <div className="chart-canvas-wrap">
+      {drawingChart && canvasWrap.current && (
+        <DrawingTools
+          key={i.id}
+          instrument={i.id}
+          context={drawingChart}
+          candles={history?.candles ?? EMPTY_CANDLES}
+          interval={interval}
+          target={canvasWrap.current}
+        />
+      )}
+      <div ref={canvasWrap} className="chart-canvas-wrap">
         <div ref={host} className="chart-canvas" />
         {(!history || !history.candles.length) && (
           <div className="chart-overlay">

@@ -58,3 +58,15 @@ SQLite WAL voor kleine configuratiewijzigingen; volume blijft bestaan bij contai
 ### Twelve Data-tijdvelden
 
 `sourceAt` gebruikt uitsluitend `last_quote_at` (tijd van de laatste minuutcandle). `timestamp` is volgens de [providerdocumentatie](https://twelvedata.com/docs) de openingstijd van de gekozen candle en wordt apart als `barStartAt` bewaard. Ontbreekt `last_quote_at`, dan blijft de koerstijd onbekend; ontvangsttijd wordt niet als bewezen koerstijd gepresenteerd. Een gesloten markt krijgt een eigen status, zonder oude quotes als realtime te behandelen.
+
+## Tekeningen
+
+`src/drawings.ts` bevat het ankercontract en de interpolatie tussen UTC-tijden en candle-indexen. `DrawingTools.tsx` projecteert één SVG-tekenlaag op het eerste prijsvak. Een lichte animation-frame meting volgt vier schaalcoördinaten; alleen een gewijzigde transformatie veroorzaakt een render. Er worden geen marktdata of candles gewijzigd. De tekenlaag vangt alleen actieve tekenhandelingen en selectie van vormen af; overige muisinteractie blijft bij de grafiek.
+
+`server/drawings.mjs` biedt GET per instrument en PUT/DELETE per tekening onder `/api/drawings`. Validatie controleert instrument, UUID, type, kleur, eindige tijd-/prijsankers en de limiet van 100 vormen. Opslag staat onder `drawings:<instrumentId>` in de lokale SQLite-store. Upsert per tekening voorkomt dat bewerkingen aan verschillende tekeningen elkaar overschrijven. Bij gelijktijdige bewerking van dezelfde tekening geldt de laatst opgeslagen versie.
+
+## Alpaca
+
+`server/alpaca.mjs` implementeert de REST- en WebSocket-adapter. `supportsInstrument` filtert op feed, markt, US-beurs en USD voordat routing plaatsvindt. Het bestaande quote/candle-contract blijft gelijk; feed, tradeVenue, quoteAt en statsAt zijn extra bronmetadata. Een verse bid/ask of dagbar maakt een oude transactietijd nooit opnieuw actueel. REST-fallback loopt via hetzelfde aanvraagbudget als de bron-test en historie. De WebSocket gebruikt authenticatie voor subscriptions, ping/pong voor stille markten, een symbolenlimiet van 30, abonnementsupdates en gecontroleerd opnieuw verbinden. Broker/trading-API’s worden niet gebruikt.
+
+`provider-config.mjs` valideert de twee credentials en versleutelt ze als één JSON-paar in het bestaande secret-veld. Beide blijven afwezig in publieke providerobjecten. De eenmalige lokale migratie voegt een uitgeschakelde Alpaca/IEX-bron toe zonder bestaande bronnen of sleutels te vervangen. Een verwijderde Alpaca-bron keert niet terug bij herstart. Providerwijzigingen maken cache/quotes ongeldig; generation-controles verwerpen oude REST-resultaten tijdens herstart.

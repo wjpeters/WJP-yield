@@ -24,7 +24,11 @@ export const catalog = [
     exchange: "MULTI",
     currency: "USD",
     base,
-    mappings: { kraken: `${base}/USD`, coinbase: `${base}-USD` },
+    mappings: {
+      kraken: `${base}/USD`,
+      coinbase: `${base}-USD`,
+      alpaca: `${base}/USD`,
+    },
   })),
   ...[
     ["AAPL", "Apple", "NASDAQ"],
@@ -43,7 +47,7 @@ export const catalog = [
     assetClass: symbol === "SPY" || symbol === "QQQ" ? "etf" : "stock",
     exchange,
     currency: "USD",
-    mappings: { twelve: symbol },
+    mappings: { twelve: symbol, alpaca: symbol },
   })),
   ...[
     ["EUR/USD", "Euro / US Dollar", "forex"],
@@ -123,7 +127,38 @@ export function normalizeCandles(rows) {
   }
   return [...out.values()].sort((a, b) => a.time - b.time).slice(-500);
 }
+export const alpacaFeeds = [
+  {
+    value: "iex",
+    label: "IEX · Amerikaanse aandelen & ETF’s",
+    description:
+      "Alleen IEX, geen volledige Amerikaanse markt. Standaardkeuze voor Basic.",
+  },
+  {
+    value: "sip",
+    label: "SIP · Alle Amerikaanse beurzen",
+    description:
+      "Vereist de bijbehorende realtime-datarechten bij Alpaca. Geen automatische upgrade of aankoop.",
+  },
+  {
+    value: "crypto_us",
+    label: "Crypto · Alpaca US",
+    description:
+      "Crypto spot bij Alpaca US. Voeg een tweede Alpaca-bron toe als je tegelijk aandelen wilt volgen. Crypto-candles kunnen volgens Alpaca ook quote-midprijzen bevatten.",
+  },
+];
 export const adaptersInfo = [
+  {
+    type: "alpaca",
+    name: "Alpaca",
+    description: "US-aandelen, ETF’s & crypto · WebSocket + REST · feedkeuze",
+    classes: ["stock", "etf", "crypto"],
+    keyRequired: true,
+    secretRequired: true,
+    keyLabel: "API Key ID",
+    feeds: alpacaFeeds,
+    website: "https://alpaca.markets",
+  },
   {
     type: "kraken",
     name: "Kraken",

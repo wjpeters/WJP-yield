@@ -1,3 +1,4 @@
+import { alpacaAdapter } from "./alpaca.mjs";
 import { intervals, normalizeCandles } from "./domain.mjs";
 const num = (v) => (v == null || v === "" ? null : Number(v));
 export async function json(url) {
@@ -17,6 +18,7 @@ export async function json(url) {
   return response.json();
 }
 export const adapters = {
+  alpaca: alpacaAdapter,
   kraken: {
     async quote(i) {
       const d = await json(
@@ -226,4 +228,8 @@ export function streamQuote(type, d) {
     venue: "Coinbase",
     timeliness: "realtime",
   };
+}
+
+export function supportsInstrument(i, p) {
+  return !!i.mappings[p.type] && (adapters[p.type]?.supports?.(i, p) ?? true);
 }

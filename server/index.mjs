@@ -6,9 +6,11 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { createStore } from "./store.mjs";
+import { registerDrawingRoutes } from "./drawings.mjs";
 import { Engine } from "./engine.mjs";
 import { adaptersInfo, intervals } from "./domain.mjs";
-import { adapters } from "./adapters.mjs";
+import { adapters, supportsInstrument } from "./adapters.mjs";
+import { configureProvider } from "./provider-config.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const store = createStore(process.env.DATA_DIR || resolve(root, "data"));
 const engine = new Engine(store);
@@ -78,50 +80,23 @@ app.get("/api/candles", async (req, reply) => {
     return reply.code(503).send({ error: e.message, details: e.details });
   }
 });
-const providerSchema = z.object({
-  type: z.enum(adaptersInfo.map((a) => a.type)),
-  name: z.string().trim().min(1).max(48),
-  priority: z.number().int().min(1).max(1000),
-  enabled: z.boolean(),
-  rpm: z.number().int().min(1).max(6000),
-  apiKey: z.string().trim().max(512).optional(),
-  clearKey: z.boolean().optional(),
-});
 app.post("/api/providers", async (req, reply) => {
-  const { apiKey, clearKey, ...body } = providerSchema.parse(req.body);
   const providers = store.providers();
   if (providers.length >= 20)
     return reply.code(400).send({ error: "Maximaal 20 databronnen" });
-  const provider = {
-    ...body,
-    id: store.id(),
-    ...(apiKey ? { secret: store.encrypt(apiKey) } : {}),
-  };
+  const provider = configureProvider(req.body, null, store);
   providers.push(provider);
   store.put("providers", providers);
   engine.restart();
   return store.publicProvider(provider);
 });
 app.put("/api/providers/:id", async (req, reply) => {
-  const { apiKey, clearKey, ...body } = providerSchema.parse(req.body);
   const providers = store.providers();
   const index = providers.findIndex((p) => p.id === req.params.id);
   if (index < 0) return reply.code(404).send({ error: "Bron niet gevonden" });
-  if (providers[index].type !== body.type)
-    return reply
-      .code(400)
-      .send({ error: "Adaptertype kan niet worden gewijzigd" });
-  providers[index] = {
-    ...providers[index],
-    ...body,
-    ...(clearKey
-      ? { secret: undefined }
-      : apiKey
-        ? { secret: store.encrypt(apiKey) }
-        : {}),
-  };
+  providers[index] = configureProvider(req.body, providers[index], store);
   store.put("providers", providers);
-  engine.cache.clear();
+  engine.invalidate(providers[index].id);
   engine.restart();
   return store.publicProvider(providers[index]);
 });
@@ -137,12 +112,26 @@ app.post("/api/providers/:id/test", async (req, reply) => {
   const p = store.providers().find((p) => p.id === req.params.id);
   if (!p) return reply.code(404).send({ error: "Bron niet gevonden" });
   if (adaptersInfo.find((a) => a.type === p.type)?.keyRequired && !p.secret)
-    return reply.code(400).send({ error: "Voeg eerst een API-sleutel toe" });
-  const i = store.instruments().find((i) => i.mappings[p.type]);
+    return reply.code(400).send({
+      error:
+        p.type === "alpaca"
+          ? "Voeg eerst de Alpaca API Key ID en Secret Key toe"
+          : "Voeg eerst een API-sleutel toe",
+    });
+  const generation = engine.generation;
+  const i = store.instruments().find((i) => supportsInstrument(i, p));
+  if (!i)
+    return reply
+      .code(400)
+      .send({ error: "Geen passend instrument voor deze feed" });
   try {
     const q = await engine.request(p, (key) =>
-      adapters[p.type].quote(i, null, key),
+      adapters[p.type].quote(i, null, key, p),
     );
+    if (generation !== engine.generation)
+      return reply
+        .code(409)
+        .send({ error: "Broninstellingen gewijzigd; test opnieuw" });
     if (!engine.ingest(p, i, q)) throw new Error("Ongeldige koers ontvangen");
     return {
       ok: true,
@@ -238,6 +227,7 @@ app.post("/api/instruments", async (req, reply) => {
   store.put("instruments", [...custom, item]);
   return item;
 });
+await app.register(async (scope) => registerDrawingRoutes(scope, store));
 const clients = new Set();
 app.get("/ws", { websocket: true }, (socket) => {
   clients.add(socket);

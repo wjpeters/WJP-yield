@@ -24,6 +24,9 @@ export default function Providers({ state, refresh, notify }: Props) {
   const [busy, setBusy] = useState("");
   const [testResults, setTestResults] = useState<Record<string, string>>({});
   const [type, setType] = useState("twelve");
+  const [feed, setFeed] = useState("iex");
+  const [formError, setFormError] = useState("");
+  const adapter = state.adapters.find((a) => a.type === type);
   async function test(p: Provider) {
     setBusy(p.id);
     try {
@@ -57,6 +60,7 @@ export default function Providers({ state, refresh, notify }: Props) {
         <button
           className="button primary"
           onClick={() => {
+            setFormError("");
             setType("twelve");
             setEdit("new");
           }}
@@ -113,6 +117,13 @@ export default function Providers({ state, refresh, notify }: Props) {
                   {state.adapters.find((a) => a.type === p.type)?.description ??
                     p.type}
                 </p>
+                {p.feed && (
+                  <p className="provider-feed">
+                    {state.adapters
+                      .find((a) => a.type === p.type)
+                      ?.feeds?.find((f) => f.value === p.feed)?.label ?? p.feed}
+                  </p>
+                )}
                 <div className="inline small-text">
                   <Dot
                     good={
@@ -157,7 +168,9 @@ export default function Providers({ state, refresh, notify }: Props) {
                   className="icon-button framed"
                   aria-label={`${p.name} bewerken`}
                   onClick={() => {
+                    setFormError("");
                     setType(p.type);
+                    setFeed(p.feed ?? "iex");
                     setEdit(p);
                   }}
                 >
@@ -221,12 +234,16 @@ export default function Providers({ state, refresh, notify }: Props) {
       <div className="provider-footnote">
         <KeyRound size={16} />
         <p>
-          Kraken en Coinbase werken zonder sleutel. Voeg Twelve Data toe voor
-          andere markten. Dekking, vertraging en limieten hangen af van je
-          abonnement.
+          Kraken en Coinbase werken zonder sleutel. Alpaca biedt Amerikaanse
+          aandelen, ETF’s en crypto; Twelve Data voegt andere markten toe.
+          Dekking en limieten hangen af van de gekozen feed en je abonnement.
         </p>
-        <a href="https://twelvedata.com" target="_blank" rel="noreferrer">
-          Twelve Data <ArrowUpRight size={14} />
+        <a
+          href="https://docs.alpaca.markets/us/docs/market-data-faq"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Alpaca-feeds <ArrowUpRight size={14} />
         </a>
       </div>
       {edit && (
@@ -234,9 +251,12 @@ export default function Providers({ state, refresh, notify }: Props) {
           title={
             edit === "new" ? "Databron toevoegen" : `${edit.name} bewerken`
           }
+          wide
+          className="provider-dialog"
           onClose={() => setEdit(null)}
         >
           <form
+            key={type}
             onSubmit={async (e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
@@ -247,8 +267,11 @@ export default function Providers({ state, refresh, notify }: Props) {
                 rpm: Number(f.get("rpm")),
                 enabled: f.get("enabled") === "on",
                 apiKey: f.get("apiKey") || undefined,
+                apiSecret: f.get("apiSecret") || undefined,
+                feed: adapter?.feeds ? feed : undefined,
                 clearKey: f.get("clearKey") === "on",
               };
+              setFormError("");
               setBusy("save");
               try {
                 await api(
@@ -260,127 +283,195 @@ export default function Providers({ state, refresh, notify }: Props) {
                 setEdit(null);
                 notify("Databron opgeslagen");
               } catch (e) {
-                notify((e as Error).message);
+                setFormError((e as Error).message);
               } finally {
                 setBusy("");
               }
             }}
           >
-            <label>
-              Adapter
-              <select
-                name="type"
-                value={type}
-                disabled={edit !== "new"}
-                onChange={(e) => setType(e.target.value)}
-              >
-                {state.adapters.map((a) => (
-                  <option key={a.type} value={a.type}>
-                    {a.name} ·{" "}
-                    {a.classes.length > 1 ? "multi-asset" : a.classes[0]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Naam
-              <input
-                name="name"
-                required
-                maxLength={48}
-                defaultValue={edit === "new" ? "" : edit.name}
-                placeholder="Bijvoorbeeld Twelve Data Pro"
-              />
-            </label>
-            <div className="form-grid">
-              <label>
-                Prioriteit
-                <input
-                  name="priority"
-                  type="number"
-                  min={1}
-                  max={1000}
-                  defaultValue={edit === "new" ? 30 : edit.priority}
-                  required
-                />
-              </label>
-              <label>
-                Max. REST-aanvragen/min
-                <input
-                  name="rpm"
-                  type="number"
-                  min={1}
-                  max={6000}
-                  defaultValue={edit === "new" ? 8 : edit.rpm}
-                  required
-                />
-              </label>
-            </div>
-            {state.adapters.find((a) => a.type === type)?.keyRequired && (
-              <>
+            <div className="provider-form-body">
+              <div className="form-grid provider-identity">
                 <label>
-                  API-sleutel
+                  Adapter
+                  <select
+                    name="type"
+                    value={type}
+                    disabled={edit !== "new"}
+                    onChange={(e) => {
+                      setType(e.target.value);
+                      setFeed(
+                        state.adapters.find((a) => a.type === e.target.value)
+                          ?.feeds?.[0]?.value ?? "iex",
+                      );
+                    }}
+                  >
+                    {state.adapters.map((a) => (
+                      <option key={a.type} value={a.type}>
+                        {a.name} ·{" "}
+                        {a.classes.length > 1 ? "multi-asset" : a.classes[0]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Naam
                   <input
-                    name="apiKey"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={
-                      edit !== "new" && edit.hasKey
-                        ? "•••••••• opgeslagen; leeg laten om te behouden"
-                        : "Plak je API-sleutel"
-                    }
-                    maxLength={512}
+                    name="name"
+                    required
+                    maxLength={48}
+                    defaultValue={edit === "new" ? "" : edit.name}
+                    placeholder="Bijvoorbeeld Twelve Data Pro"
                   />
                 </label>
-                <p className="muted small-text">
-                  De sleutel blijft server-side in je lokale Docker-volume. De
-                  app stuurt opgeslagen sleutels nooit terug naar je browser.
-                </p>
-                {edit !== "new" && edit.hasKey && (
-                  <label className="checkbox">
-                    <input type="checkbox" name="clearKey" /> Opgeslagen sleutel
-                    verwijderen
-                  </label>
-                )}
-              </>
-            )}
-            <label className="checkbox">
-              <input
-                name="enabled"
-                type="checkbox"
-                defaultChecked={edit === "new" ? true : edit.enabled}
-              />{" "}
-              Databron inschakelen
-            </label>
-            <div className="dialog-actions">
-              {edit !== "new" && (
-                <button
-                  type="button"
-                  className="button danger"
-                  disabled={!!busy}
-                  onClick={async () => {
-                    setBusy("delete");
-                    try {
-                      await api(`/providers/${edit.id}`, "DELETE");
-                      await refresh();
-                      setEdit(null);
-                    } catch (e) {
-                      notify((e as Error).message);
-                    } finally {
-                      setBusy("");
-                    }
-                  }}
+              </div>
+              {adapter?.keyRequired && (
+                <section
+                  className="provider-credentials"
+                  aria-label="API-sleutels"
                 >
-                  <Trash2 size={14} /> Verwijderen
-                </button>
+                  <div className="form-grid credential-fields">
+                    <label>
+                      {adapter.keyLabel ?? "API-sleutel"}
+                      <input
+                        name="apiKey"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={
+                          edit !== "new" && edit.hasKey
+                            ? "•••••••• opgeslagen; leeg laten om te behouden"
+                            : "Plak je API-sleutel"
+                        }
+                        maxLength={512}
+                      />
+                    </label>
+                    {adapter.secretRequired && (
+                      <label>
+                        Secret Key
+                        <input
+                          name="apiSecret"
+                          type="password"
+                          autoComplete="new-password"
+                          maxLength={512}
+                          placeholder={
+                            edit !== "new" && edit.hasKey
+                              ? "•••••••• opgeslagen; beide velden leeg laten om te behouden"
+                              : "Plak je Secret Key"
+                          }
+                        />
+                      </label>
+                    )}
+                  </div>
+                  {adapter.secretRequired && (
+                    <p className="muted small-text">
+                      Vul API Key ID én Secret Key in vanuit je Alpaca-account.
+                    </p>
+                  )}
+                  <p className="muted small-text">
+                    Sleutels worden alleen lokaal en versleuteld opgeslagen.
+                    {edit !== "new" &&
+                      edit.hasKey &&
+                      " Laat de sleutelvelden leeg om de opgeslagen sleutels te behouden."}
+                  </p>
+                  {edit !== "new" && edit.hasKey && (
+                    <label className="checkbox">
+                      <input type="checkbox" name="clearKey" /> Opgeslagen
+                      sleutel verwijderen
+                    </label>
+                  )}
+                </section>
               )}
-              <button
-                type="submit"
-                className="button primary"
-                disabled={!!busy}
-              >
-                <Check size={15} /> Opslaan
-              </button>
+              <div className="form-grid">
+                <label>
+                  Prioriteit
+                  <input
+                    name="priority"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    defaultValue={edit === "new" ? 30 : edit.priority}
+                    required
+                  />
+                </label>
+                <label>
+                  Max. REST-aanvragen/min
+                  <input
+                    name="rpm"
+                    type="number"
+                    min={1}
+                    max={6000}
+                    defaultValue={
+                      edit === "new" ? (adapter?.feeds ? 120 : 8) : edit.rpm
+                    }
+                    required
+                  />
+                </label>
+              </div>
+              {adapter?.feeds && (
+                <>
+                  <label>
+                    Marktdatafeed
+                    <select
+                      name="feed"
+                      value={feed}
+                      onChange={(e) => setFeed(e.target.value)}
+                    >
+                      {adapter.feeds.map((f) => (
+                        <option key={f.value} value={f.value}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="muted small-text">
+                    {adapter.feeds.find((f) => f.value === feed)?.description}
+                  </p>
+                </>
+              )}
+              <label className="checkbox">
+                <input
+                  name="enabled"
+                  type="checkbox"
+                  defaultChecked={edit === "new" ? true : edit.enabled}
+                />{" "}
+                Databron inschakelen
+              </label>
+            </div>
+            <div className="provider-form-footer">
+              {formError && (
+                <p className="provider-form-error" role="alert">
+                  {formError}
+                </p>
+              )}
+              <div className="dialog-actions">
+                {edit !== "new" && (
+                  <button
+                    type="button"
+                    className="button danger"
+                    disabled={!!busy}
+                    onClick={async () => {
+                      setBusy("delete");
+                      try {
+                        await api(`/providers/${edit.id}`, "DELETE");
+                        await refresh();
+                        setEdit(null);
+                      } catch (e) {
+                        notify((e as Error).message);
+                      } finally {
+                        setBusy("");
+                      }
+                    }}
+                  >
+                    <Trash2 size={14} /> Verwijderen
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="button primary"
+                  disabled={!!busy}
+                >
+                  <Check size={15} /> Opslaan
+                </button>
+              </div>
             </div>
           </form>
         </Dialog>

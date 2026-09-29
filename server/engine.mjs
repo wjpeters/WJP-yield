@@ -1,5 +1,6 @@
 import WebSocket from "ws";
-import { adapters, streamQuote } from "./adapters.mjs";
+import { connectAlpaca } from "./alpaca.mjs";
+import { adapters, streamQuote, supportsInstrument } from "./adapters.mjs";
 import { validQuote, selectQuote, isFresh, adaptersInfo } from "./domain.mjs";
 const needsKey = (p) =>
   adaptersInfo.find((a) => a.type === p.type)?.keyRequired;
@@ -54,7 +55,8 @@ export class Engine {
   eligible(i) {
     return this.providers()
       .filter(
-        (p) => p.enabled && i.mappings[p.type] && (!needsKey(p) || p.secret),
+        (p) =>
+          p.enabled && supportsInstrument(i, p) && (!needsKey(p) || p.secret),
       )
       .sort((a, b) => a.priority - b.priority);
   }
@@ -183,16 +185,21 @@ export class Engine {
     }
   }
   async poll() {
+    const generation = this.generation;
     for (const p of this.providers().filter((p) => p.enabled)) {
+      if (generation !== this.generation) return;
       const s = this.state(p.id);
       if (needsKey(p) && !p.secret) continue;
       if (Date.now() - s.lastPoll < (p.type === "twelve" ? 60000 : 20000))
         continue;
       s.lastPoll = Date.now();
-      const eligible = this.instruments().filter((i) => i.mappings[p.type]);
+      const eligible = this.instruments().filter((i) =>
+        supportsInstrument(i, p),
+      );
       const offset = (s.pollOffset ?? 0) % Math.max(1, eligible.length);
       const ordered = [...eligible.slice(offset), ...eligible.slice(0, offset)];
       for (const i of ordered) {
+        if (generation !== this.generation) return;
         if (s.requests.filter((t) => Date.now() - t < 60000).length >= p.rpm)
           break;
         s.pollOffset = (eligible.indexOf(i) + 1) % Math.max(1, eligible.length);
@@ -200,8 +207,9 @@ export class Engine {
         if (old?.transport === "WebSocket" && isFresh(old)) continue;
         try {
           const q = await this.request(p, (key) =>
-            adapters[p.type].quote(i, null, key),
+            adapters[p.type].quote(i, null, key, p),
           );
+          if (generation !== this.generation) return;
           if (this.providers().some((x) => x.id === p.id && x.enabled))
             this.ingest(p, i, q);
         } catch {}
@@ -209,6 +217,7 @@ export class Engine {
     }
   }
   async history(i, interval, preferred) {
+    const generation = this.generation;
     this.touch(i.id);
     const providers = this.eligible(i).sort((a, b) =>
       a.id === preferred
@@ -219,7 +228,7 @@ export class Engine {
     );
     const failures = [];
     for (const p of providers) {
-      const key = `${p.id}:${i.id}:${interval}`;
+      const key = `${p.id}:${p.feed ?? ""}:${generation}:${i.id}:${interval}`;
       const cached = this.cache.get(key);
       if (
         cached &&
@@ -231,16 +240,22 @@ export class Engine {
           this.pending.set(
             key,
             this.request(p, (secret) =>
-              adapters[p.type].candles(i, interval, secret),
+              adapters[p.type].candles(i, interval, secret, p),
             )
               .then((candles) => {
+                if (generation !== this.generation)
+                  throw new Error(
+                    "Broninstellingen gewijzigd; probeer opnieuw",
+                  );
                 if (!candles.length)
                   throw new Error("Geen geldige candles ontvangen");
                 const result = {
                   candles,
                   provider: p.name,
                   providerId: p.id,
-                  venue: i.assetClass === "crypto" ? p.name : i.exchange,
+                  venue:
+                    adapters[p.type].venue?.(i, p) ??
+                    (i.assetClass === "crypto" ? p.name : i.exchange),
                   interval,
                   instrumentId: i.id,
                   currency: i.currency,
@@ -256,6 +271,8 @@ export class Engine {
           );
         return { ...(await this.pending.get(key)), failures };
       } catch (e) {
+        if (generation !== this.generation)
+          throw new Error("Broninstellingen gewijzigd; probeer opnieuw");
         failures.push({ provider: p.name, error: e.message });
       }
     }
@@ -275,8 +292,50 @@ export class Engine {
     this.timers.add(timer);
     return timer;
   }
+  invalidate(id) {
+    for (const values of this.quotes.values()) values.delete(id);
+    this.cache.clear();
+    const state = this.state(id);
+    Object.assign(state, {
+      lastReceived: null,
+      status: "wachten",
+      error: null,
+      failures: 0,
+      openUntil: 0,
+      lastPoll: 0,
+    });
+    this.store.put(`budget:${id}`, {
+      requests: state.requests,
+      failures: 0,
+      openUntil: 0,
+    });
+  }
   connect(p, generation, attempt = 0) {
     if (!this.running || generation !== this.generation) return;
+    if (p.type === "alpaca") {
+      if (!p.secret) return;
+      try {
+        const connection = connectAlpaca({
+          provider: p,
+          secret: this.store.decrypt(p.secret),
+          instruments: this.instruments(),
+          isCurrent: () => this.running && generation === this.generation,
+          schedule: (fn, ms) => this.later(fn, ms),
+          reconnect: () => this.connect(p, generation),
+          status: (update) => Object.assign(this.state(p.id), update),
+          getQuote: (i) => this.quotes.get(i.id)?.get(p.id),
+          onQuote: (i, q) => this.ingest(p, i, q, "WebSocket"),
+          onInvalidate: (i) => {
+            this.quotes.get(i.id)?.delete(p.id);
+            this.state(p.id).lastPoll = 0;
+          },
+        });
+        this.sockets.set(p.id, connection);
+      } catch {
+        this.state(p.id).error = "Controleer de Alpaca-sleutels";
+      }
+      return;
+    }
     const instruments = this.store
       .instruments()
       .filter((i) => i.mappings[p.type]);
@@ -351,11 +410,13 @@ export class Engine {
     this.running = true;
     const generation = this.generation;
     for (const p of this.providers().filter(
-      (p) => p.enabled && ["kraken", "coinbase"].includes(p.type),
+      (p) => p.enabled && ["kraken", "coinbase", "alpaca"].includes(p.type),
     ))
       this.connect(p, generation);
     for (const s of this.health.values()) s.lastPoll = 0;
     const cycle = async () => {
+      for (const socket of this.sockets.values())
+        socket.sync?.(this.instruments());
       await this.poll();
       if (this.running && generation === this.generation)
         this.later(cycle, 5000);

@@ -36,6 +36,7 @@ export type Provider = {
   enabled: boolean;
   rpm: number;
   hasKey: boolean;
+  feed?: string;
   health: {
     status: string;
     lastReceived: number | null;
@@ -53,6 +54,9 @@ export type AdapterInfo = {
   description: string;
   classes: string[];
   keyRequired: boolean;
+  secretRequired?: boolean;
+  keyLabel?: string;
+  feeds?: { value: string; label: string; description: string }[];
   website: string;
 };
 export type State = {

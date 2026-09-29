@@ -8,7 +8,10 @@ export async function api<T = unknown>(
 ): Promise<T> {
   const r = await fetch("/api" + path, {
     method,
-    headers: { "Content-Type": "application/json", "X-Yield-Request": "1" },
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      "X-Yield-Request": "1",
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
