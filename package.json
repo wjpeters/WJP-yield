@@ -1,0 +1,41 @@
+{
+  "name": "wjp-yield",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "server": "node server/index.mjs",
+    "build": "tsc -b && vite build",
+    "start": "node server/index.mjs",
+    "test": "node --test server/*.test.mjs",
+    "check": "npm run build && npm test",
+    "format": "prettier --write src server docs *.json *.ts *.md compose.yaml",
+    "format:check": "prettier --check src server docs *.json *.ts *.md compose.yaml"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.5",
+    "@fastify/websocket": "^11.3.1",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "fastify": "5.12.5",
+    "lightweight-charts": "5.2.1",
+    "lucide-react": "^1.48.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "latest",
+    "prettier": "^3.9.9",
+    "typescript": "latest",
+    "vite": "8.3.1"
+  }
+}

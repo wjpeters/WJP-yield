@@ -1,0 +1,26 @@
+name: wjp-yield
+services:
+  terminal:
+    build: .
+    ports:
+      - "127.0.0.1:4310:8080"
+    volumes:
+      - yield-data:/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    cpus: 2
+volumes:
+  yield-data:
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${YIELD_SUBNET:-10.233.91.0/28}
