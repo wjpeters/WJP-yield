@@ -1,9 +1,7 @@
 /* Instrument research uses the terminal's existing palette and type families. */
 .market-overview {
   width: 100%;
-  max-width: 1540px;
-  margin: 0 auto;
-  padding: 30px 26px 40px;
+  padding: 30px var(--page-gutter) 40px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -645,7 +643,7 @@
 }
 @media (max-width: 760px) {
   .market-overview {
-    padding: 22px 14px 30px;
+    padding: 22px var(--page-gutter) 30px;
     gap: 16px;
   }
   .research-top-grid,
