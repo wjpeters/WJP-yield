@@ -1,4 +1,4 @@
-import { ArrowUpRight, Info } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronUp, Info } from "lucide-react";
 import { age, price, time, stamp } from "./api";
 import type { Instrument, Quote, State } from "./types";
 import { Dot } from "./ui";
@@ -158,9 +158,13 @@ export default function Inspector({
 export function ProviderTable({
   state,
   onManage,
+  collapsed,
+  onToggle,
 }: {
   state: State;
   onManage: () => void;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   return (
     <section className="panel quality">
@@ -169,11 +173,30 @@ export function ProviderTable({
           <h2>Datakwaliteit</h2>
           <span className="muted small-text">Bronstatus & ontvangst</span>
         </div>
-        <button className="text-button" onClick={onManage}>
-          Beheer bronnen <ArrowUpRight size={14} />
-        </button>
+        <div className="quality-actions">
+          <button className="text-button" onClick={onManage}>
+            Beheer bronnen <ArrowUpRight size={14} />
+          </button>
+          <button
+            className="text-button quality-toggle"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            aria-controls="provider-status-table"
+            aria-label={`Datakwaliteit ${collapsed ? "uitklappen" : "inklappen"}`}
+          >
+            {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            {collapsed ? "Uitklappen" : "Inklappen"}
+          </button>
+        </div>
       </div>
-      <div className="table-scroll">
+      <div
+        className="table-scroll"
+        id="provider-status-table"
+        hidden={collapsed}
+        tabIndex={collapsed ? undefined : 0}
+        role="region"
+        aria-label="Bronstatus en ontvangst"
+      >
         <table>
           <thead>
             <tr>

@@ -253,6 +253,9 @@ label {
   font-size: 11px;
 }
 .terminal {
+  --quality-table-height: 180px;
+  --quality-reclaimed-space: 0px;
+  min-width: 0;
   padding: 18px 18px 0;
   flex: 1;
   display: flex;
@@ -883,6 +886,46 @@ dd {
 }
 .quality {
   flex-shrink: 0;
+  min-width: 0;
+  width: 100%;
+}
+.quality-collapsed {
+  --quality-reclaimed-space: var(--quality-table-height);
+}
+.quality .table-scroll {
+  max-height: var(--quality-table-height);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.quality .table-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.quality .table-scroll::-webkit-scrollbar-track {
+  background: #0d121b;
+}
+.quality .table-scroll::-webkit-scrollbar-thumb {
+  background: #465267;
+  border: 2px solid #0d121b;
+  border-radius: 5px;
+}
+.quality th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.quality-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.quality-toggle {
+  min-height: 28px;
+}
+.quality-collapsed .quality .panel-title {
+  border-bottom: 0;
 }
 .quality .panel-title {
   padding: 13px 17px;
@@ -1971,9 +2014,11 @@ footer .footer-center {
 
 @media (min-width: 1251px) {
   .terminal-grid {
-    min-height: 590px;
-    height: calc(100dvh - 365px);
     flex: none;
+    min-width: 0;
+  }
+  .terminal-grid > * {
+    min-width: 0;
   }
   .chart-canvas-wrap {
     min-height: 240px;
@@ -2049,8 +2094,9 @@ footer .footer-center {
 
 @media (min-width: 1251px) {
   .terminal-grid {
-    height: calc(100dvh - 460px);
-    min-height: 560px;
+    /* Let intrinsic column heights reserve space before the quality panel. */
+    height: auto;
+    min-height: calc(max(560px, 100dvh - 410px) + var(--quality-reclaimed-space));
   }
   .watch-rows {
     min-height: 0;
@@ -2430,4 +2476,23 @@ footer .footer-center {
 }
 .catalog-pagination > span {
   flex: 1;
+}
+
+@media (min-width: 601px) and (max-width: 1250px) {
+  .quality-collapsed .chart-panel,
+  .quality-collapsed .watchlist {
+    min-height: calc(600px + var(--quality-reclaimed-space));
+  }
+}
+@media (max-width: 600px) {
+  .quality .panel-title {
+    flex-wrap: wrap;
+  }
+  .quality-actions {
+    gap: 12px;
+    margin-left: auto;
+  }
+  .quality-collapsed .chart-panel {
+    min-height: calc(720px + var(--quality-reclaimed-space));
+  }
 }

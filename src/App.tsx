@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ChartCandlestick,
+  ChartNoAxesCombined,
   Database,
   Radio,
   ArrowUpRight,
@@ -13,10 +14,14 @@ import Watchlist from "./Watchlist";
 import ChartPanel from "./ChartPanel";
 import Inspector, { ProviderTable } from "./Inspector";
 import Providers from "./Providers";
+import MarketOverview from "./MarketOverview";
+import "./market-overview.css";
 import { Dot } from "./ui";
 export default function App() {
   const { state, connected, error, refresh } = useTerminal();
-  const [page, setPage] = useState<"terminal" | "providers">("terminal");
+  const [page, setPage] = useState<"terminal" | "overview" | "providers">(
+    "terminal",
+  );
   const [favorites, setFavorites] = useState<string[]>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("yield-favorites") ?? "[]");
@@ -30,6 +35,20 @@ export default function App() {
   const [selected, setSelected] = useState(
     () => localStorage.getItem("yield-selected") ?? "crypto:BTC:USD",
   );
+  const [qualityCollapsed, setQualityCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("yield-quality-collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("yield-quality-collapsed", String(qualityCollapsed));
+    } catch {
+      // The panel still works when browser storage is unavailable.
+    }
+  }, [qualityCollapsed]);
   const [toast, setToast] = useState("");
   useEffect(() => {
     if (!toast) return;
@@ -62,7 +81,7 @@ export default function App() {
   const choose = (id: string) => {
     setSelected(id);
     localStorage.setItem("yield-selected", id);
-    setPage("terminal");
+    setPage((current) => (current === "overview" ? "overview" : "terminal"));
   };
   const toggleFavorite = (id: string) => {
     setFavorites((current) => {
@@ -91,6 +110,13 @@ export default function App() {
             className={page === "terminal" ? "active" : ""}
           >
             <ChartCandlestick size={18} /> Terminal
+          </button>
+          <button
+            onClick={() => setPage("overview")}
+            className={page === "overview" ? "active" : ""}
+            aria-current={page === "overview" ? "page" : undefined}
+          >
+            <ChartNoAxesCombined size={18} /> Marktoverzicht
           </button>
           <button
             onClick={() => setPage("providers")}
@@ -160,10 +186,21 @@ export default function App() {
             Opnieuw verbinden
           </button>
         </div>
+      ) : page === "overview" ? (
+        <MarketOverview
+          state={state}
+          instrument={instrument}
+          onSelect={choose}
+          onTerminal={() => setPage("terminal")}
+          onProviders={() => setPage("providers")}
+          connected={connected}
+        />
       ) : page === "providers" ? (
         <Providers state={state} refresh={refresh} notify={setToast} />
       ) : (
-        <main className="terminal">
+        <main
+          className={`terminal${qualityCollapsed ? " quality-collapsed" : ""}`}
+        >
           <div className="terminal-grid">
             <Watchlist
               state={state}
@@ -198,7 +235,12 @@ export default function App() {
               </section>
             )}
           </div>
-          <ProviderTable state={state} onManage={() => setPage("providers")} />
+          <ProviderTable
+            state={state}
+            onManage={() => setPage("providers")}
+            collapsed={qualityCollapsed}
+            onToggle={() => setQualityCollapsed((current) => !current)}
+          />
           <div className="workspace-note">
             <span>
               <Command size={13} /> <kbd>/</kbd> zoeken{" "}

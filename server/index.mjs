@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { createStore } from "./store.mjs";
 import { registerDrawingRoutes } from "./drawings.mjs";
+import { registerResearchRoutes } from "./research.mjs";
 import { registerWatchlistRoutes } from "./watchlists.mjs";
 import { Engine } from "./engine.mjs";
 import { Catalog, registerCatalogRoutes } from "./catalog.mjs";
@@ -68,6 +69,7 @@ app.get("/api/health", async () => ({ ok: true, version: "0.1.0" }));
 app.get("/api/state", async () => engine.snapshot());
 app.get("/api/adapters", async () => adaptersInfo);
 registerCatalogRoutes(app, catalog);
+registerResearchRoutes(app, store, engine);
 app.get("/api/candles", async (req, reply) => {
   const q = z
     .object({

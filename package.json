@@ -21,6 +21,7 @@
     "@fastify/websocket": "^11.3.1",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
+    "fast-xml-parser": "5.11.2",
     "fastify": "5.12.5",
     "lightweight-charts": "5.2.1",
     "lucide-react": "^1.48.0",
