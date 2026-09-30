@@ -1,12 +1,33 @@
+import { okxAdapter } from "./okx.mjs";
 import { alpacaAdapter } from "./alpaca.mjs";
 import { intervals, normalizeCandles } from "./domain.mjs";
+import { candleSource } from "./timeframes.mjs";
 const num = (v) => (v == null || v === "" ? null : Number(v));
-export async function json(url) {
+function twelveError(status) {
+  const error = new Error(
+    status === 401
+      ? "API-sleutel ongeldig"
+      : status === 429
+        ? "Rate limit bereikt"
+        : status === 404
+          ? "Instrument niet gevonden bij Twelve Data; controleer symbool en beurs"
+          : status === 403
+            ? "Twelve Data: abonnement geeft geen toegang tot deze data"
+            : status === 400
+              ? "Twelve Data: ongeldige aanvraagparameters"
+              : `Twelve Data antwoordt met HTTP ${status}`,
+  );
+  error.status = status;
+  if (status === 404) error.scope = "instrument";
+  return error;
+}
+export async function json(url, provider) {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(9000),
     headers: { "User-Agent": "WJP-yield/0.1" },
   });
   if (!response.ok) {
+    if (provider === "twelve") throw twelveError(response.status);
     const error = new Error(
       response.status === 429
         ? "Rate limit bereikt"
@@ -19,10 +40,11 @@ export async function json(url) {
 }
 export const adapters = {
   alpaca: alpacaAdapter,
+  okx: okxAdapter,
   kraken: {
     async quote(i) {
       const d = await json(
-        `https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(i.mappings.kraken.replace("BTC", "XBT").replace("/", ""))}`,
+        `https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(i.mappings.krakenRest ?? i.mappings.kraken.replace("BTC", "XBT").replace("/", ""))}`,
       );
       if (d.error?.length)
         throw new Error("Kraken kan dit instrument niet leveren");
@@ -41,8 +63,9 @@ export const adapters = {
       };
     },
     async candles(i, interval) {
+      const source = candleSource("kraken", interval);
       const d = await json(
-        `https://api.kraken.com/0/public/OHLC?pair=${encodeURIComponent(i.mappings.kraken.replace("BTC", "XBT").replace("/", ""))}&interval=${intervals[interval] / 60}`,
+        `https://api.kraken.com/0/public/OHLC?pair=${encodeURIComponent(i.mappings.krakenRest ?? i.mappings.kraken.replace("BTC", "XBT").replace("/", ""))}&interval=${intervals[source] / 60}`,
       );
       if (d.error?.length) throw new Error("Kraken-historie niet beschikbaar");
       return normalizeCandles(
@@ -56,6 +79,7 @@ export const adapters = {
             close: +r[4],
             volume: +r[6],
           })) ?? [],
+        source === interval ? 500 : Infinity,
       );
     },
   },
@@ -78,8 +102,9 @@ export const adapters = {
       };
     },
     async candles(i, interval) {
+      const source = candleSource("coinbase", interval);
       const d = await json(
-        `https://api.exchange.coinbase.com/products/${encodeURIComponent(i.mappings.coinbase)}/candles?granularity=${intervals[interval]}`,
+        `https://api.exchange.coinbase.com/products/${encodeURIComponent(i.mappings.coinbase)}/candles?granularity=${intervals[source]}`,
       );
       if (!Array.isArray(d))
         throw new Error("Coinbase-historie niet beschikbaar");
@@ -103,18 +128,11 @@ export const adapters = {
         timezone: "UTC",
         ...(i.exchange !== "OTC" ? { exchange: i.exchange } : {}),
       });
-      const q = await json(`https://api.twelvedata.com/quote?${params}`);
-      if (q.status === "error") {
-        const error = new Error(
-          q.code === 401
-            ? "API-sleutel ongeldig"
-            : q.code === 429
-              ? "Rate limit bereikt"
-              : "Instrument of abonnement geeft geen toegang tot deze data",
-        );
-        error.status = q.code;
-        throw error;
-      }
+      const q = await json(
+        `https://api.twelvedata.com/quote?${params}`,
+        "twelve",
+      );
+      if (q.status === "error") throw twelveError(Number(q.code));
       if (
         q.symbol &&
         q.symbol.toUpperCase() !== i.mappings.twelve.toUpperCase()
@@ -144,31 +162,32 @@ export const adapters = {
       };
     },
     async candles(i, interval, key) {
+      const source = candleSource("twelve", interval);
       const names = {
         "1m": "1min",
         "5m": "5min",
         "15m": "15min",
         "1h": "1h",
+        "30m": "30min",
+        "2h": "2h",
+        "4h": "4h",
         "1d": "1day",
+        "1w": "1week",
+        "1mo": "1month",
       };
       const params = new URLSearchParams({
         symbol: i.mappings.twelve,
-        interval: names[interval],
+        interval: names[source],
         outputsize: "250",
         timezone: "UTC",
         apikey: key,
         ...(i.exchange !== "OTC" ? { exchange: i.exchange } : {}),
       });
-      const d = await json(`https://api.twelvedata.com/time_series?${params}`);
-      if (d.status === "error") {
-        const error = new Error(
-          d.code === 429
-            ? "Rate limit bereikt"
-            : "Geen historie: controleer instrument of API-rechten",
-        );
-        error.status = d.code;
-        throw error;
-      }
+      const d = await json(
+        `https://api.twelvedata.com/time_series?${params}`,
+        "twelve",
+      );
+      if (d.status === "error") throw twelveError(Number(d.code));
       if (
         d.meta?.symbol &&
         d.meta.symbol.toUpperCase() !== i.mappings.twelve.toUpperCase()
@@ -231,5 +250,11 @@ export function streamQuote(type, d) {
 }
 
 export function supportsInstrument(i, p) {
+  const source = i.catalogSources?.[p.id];
+  if (
+    i.catalogSources &&
+    (!source || source.type !== p.type || source.feed !== (p.feed ?? ""))
+  )
+    return false;
   return !!i.mappings[p.type] && (adapters[p.type]?.supports?.(i, p) ?? true);
 }

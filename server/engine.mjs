@@ -1,7 +1,9 @@
 import WebSocket from "ws";
+import { connectOKX } from "./okx.mjs";
 import { connectAlpaca } from "./alpaca.mjs";
 import { adapters, streamQuote, supportsInstrument } from "./adapters.mjs";
 import { validQuote, selectQuote, isFresh, adaptersInfo } from "./domain.mjs";
+import { candleSource, aggregateCandles } from "./timeframes.mjs";
 const needsKey = (p) =>
   adaptersInfo.find((a) => a.type === p.type)?.keyRequired;
 export class Engine {
@@ -18,6 +20,7 @@ export class Engine {
     this.generation = 0;
     this.running = false;
     this.active = new Map();
+    this.instrumentIssues = new Map(store.get("instrument-issues", []));
   }
   providers() {
     return this.store.providers();
@@ -61,6 +64,7 @@ export class Engine {
       .sort((a, b) => a.priority - b.priority);
   }
   ingest(p, i, q, transport = "REST") {
+    if (!this.store.instruments().some((row) => row.id === i.id)) return false;
     const result = {
       ...q,
       instrumentId: i.id,
@@ -105,7 +109,13 @@ export class Engine {
     return q;
   }
   snapshot() {
-    const instruments = this.store.instruments();
+    const providers = this.providers();
+    const instruments = this.store.instruments().map((i) => ({
+      ...i,
+      providerIds: providers
+        .filter((p) => supportsInstrument(i, p))
+        .map((p) => p.id),
+    }));
     return {
       at: Date.now(),
       adapters: adaptersInfo,
@@ -119,7 +129,12 @@ export class Engine {
           i.id,
           [...(this.quotes.get(i.id)?.values() ?? [])]
             .filter((q) =>
-              this.providers().some((p) => p.id === q.providerId && p.enabled),
+              this.providers().some(
+                (p) =>
+                  p.id === q.providerId &&
+                  p.enabled &&
+                  supportsInstrument(i, p),
+              ),
             )
             .map((q) => ({ ...q, stale: !isFresh(q) })),
         ]),
@@ -131,6 +146,14 @@ export class Engine {
           health: {
             ...s,
             requests: undefined,
+            instrumentIssues: [...this.instrumentIssues.values()].filter(
+              (issue) =>
+                issue.providerId === p.id &&
+                instruments.some(
+                  (i) =>
+                    this.instrumentIssues.get(this.issueKey(p, i)) === issue,
+                ),
+            ),
             status: !p.enabled
               ? "uitgeschakeld"
               : needsKey(p) && !p.secret
@@ -146,7 +169,31 @@ export class Engine {
       events: this.events,
     };
   }
-  async request(p, job) {
+  issueKey(p, i) {
+    return JSON.stringify([
+      p.id,
+      p.feed,
+      i.id,
+      i.exchange,
+      i.currency,
+      i.mappings[p.type],
+    ]);
+  }
+  saveIssues() {
+    // Bound persisted diagnostics to current instruments and providers.
+    const keys = new Set(
+      this.providers().flatMap((p) =>
+        this.store.instruments().map((i) => this.issueKey(p, i)),
+      ),
+    );
+    for (const key of this.instrumentIssues.keys())
+      if (!keys.has(key)) this.instrumentIssues.delete(key);
+    this.store.put("instrument-issues", [...this.instrumentIssues]);
+  }
+  issue(p, i) {
+    return this.instrumentIssues.get(this.issueKey(p, i));
+  }
+  reserveBudget(p) {
     const s = this.state(p.id);
     const now = Date.now();
     if (s.openUntil > now)
@@ -160,15 +207,42 @@ export class Engine {
       failures: s.failures,
       openUntil: s.openUntil,
     });
+    return s;
+  }
+  async request(p, job, instrument) {
+    const issue = instrument && this.issue(p, instrument);
+    if (issue?.retryAt > Date.now()) throw new Error(issue.error);
+    const generation = this.generation;
+    const s = this.reserveBudget(p);
     const start = performance.now();
     try {
       const value = await job(this.store.decrypt(p.secret));
+      if (instrument && generation === this.generation) {
+        this.instrumentIssues.delete(this.issueKey(p, instrument));
+        if (issue) this.saveIssues();
+      }
       s.latencyMs = Math.round(performance.now() - start);
       s.failures = 0;
       s.openUntil = 0;
       s.error = null;
       return value;
     } catch (e) {
+      if (e.scope === "instrument" && instrument) {
+        const error = `${instrument.symbol} (${instrument.exchange}): ${e.message}`;
+        if (generation === this.generation) {
+          this.instrumentIssues.set(this.issueKey(p, instrument), {
+            providerId: p.id,
+            instrumentId: instrument.id,
+            symbol: instrument.symbol,
+            error,
+            retryAt: Date.now() + 15 * 60000,
+          });
+          this.quotes.get(instrument.id)?.delete(p.id);
+          this.saveIssues();
+        }
+        // A missing listing must not open the circuit for healthy instruments.
+        throw new Error(error);
+      }
       s.failures++;
       s.error = e.message.includes("http")
         ? "Verbinding met provider mislukt"
@@ -206,8 +280,10 @@ export class Engine {
         const old = this.quotes.get(i.id)?.get(p.id);
         if (old?.transport === "WebSocket" && isFresh(old)) continue;
         try {
-          const q = await this.request(p, (key) =>
-            adapters[p.type].quote(i, null, key, p),
+          const q = await this.request(
+            p,
+            (key) => adapters[p.type].quote(i, null, key, p),
+            i,
           );
           if (generation !== this.generation) return;
           if (this.providers().some((x) => x.id === p.id && x.enabled))
@@ -239,10 +315,18 @@ export class Engine {
         if (!this.pending.has(key))
           this.pending.set(
             key,
-            this.request(p, (secret) =>
-              adapters[p.type].candles(i, interval, secret, p),
+            this.request(
+              p,
+              (secret) => adapters[p.type].candles(i, interval, secret, p),
+              i,
             )
-              .then((candles) => {
+              .then((rows) => {
+                const sourceInterval = candleSource(p.type, interval);
+                const candles = aggregateCandles(
+                  rows,
+                  interval,
+                  sourceInterval,
+                );
                 if (generation !== this.generation)
                   throw new Error(
                     "Broninstellingen gewijzigd; probeer opnieuw",
@@ -257,6 +341,8 @@ export class Engine {
                     adapters[p.type].venue?.(i, p) ??
                     (i.assetClass === "crypto" ? p.name : i.exchange),
                   interval,
+                  sourceInterval,
+                  aggregated: sourceInterval !== interval,
                   instrumentId: i.id,
                   currency: i.currency,
                   fetchedAt: Date.now(),
@@ -292,7 +378,27 @@ export class Engine {
     this.timers.add(timer);
     return timer;
   }
+  releaseUnwatched(ids) {
+    const referenced = new Set(
+      this.store.watchlists().flatMap((w) => w.instruments),
+    );
+    for (const id of ids) {
+      if (referenced.has(id)) continue;
+      this.active.delete(id);
+      this.quotes.delete(id);
+      this.lastRoute.delete(id);
+      for (const [key, issue] of this.instrumentIssues)
+        if (issue.instrumentId === id) this.instrumentIssues.delete(key);
+    }
+    this.cache.clear();
+    this.saveIssues();
+    for (const socket of this.sockets.values())
+      socket.sync?.(this.instruments());
+  }
   invalidate(id) {
+    for (const [key, issue] of this.instrumentIssues)
+      if (issue.providerId === id) this.instrumentIssues.delete(key);
+    this.saveIssues();
     for (const values of this.quotes.values()) values.delete(id);
     this.cache.clear();
     const state = this.state(id);
@@ -312,6 +418,20 @@ export class Engine {
   }
   connect(p, generation, attempt = 0) {
     if (!this.running || generation !== this.generation) return;
+    if (p.type === "okx") {
+      this.sockets.set(
+        p.id,
+        connectOKX({
+          instruments: this.instruments(),
+          isCurrent: () => this.running && generation === this.generation,
+          schedule: (fn, ms) => this.later(fn, ms),
+          reconnect: () => this.connect(p, generation),
+          status: (update) => Object.assign(this.state(p.id), update),
+          onQuote: (i, q) => this.ingest(p, i, q, "WebSocket"),
+        }),
+      );
+      return;
+    }
     if (p.type === "alpaca") {
       if (!p.secret) return;
       try {
@@ -336,10 +456,10 @@ export class Engine {
       }
       return;
     }
-    const instruments = this.store
-      .instruments()
-      .filter((i) => i.mappings[p.type]);
-    if (!instruments.length) return;
+    let instruments = this.instruments().filter((i) =>
+      supportsInstrument(i, p),
+    );
+    let subscribed = new Set();
     const ws = new WebSocket(
       p.type === "kraken"
         ? "wss://ws.kraken.com/v2"
@@ -348,27 +468,47 @@ export class Engine {
     );
     this.sockets.set(p.id, ws);
     let seen = Date.now();
-    ws.on("open", () => {
-      attempt = 0;
-      this.state(p.id).status = "verbonden";
+    const send = (action, symbols) => {
+      if (!symbols.length) return;
       ws.send(
         JSON.stringify(
           p.type === "kraken"
             ? {
-                method: "subscribe",
+                method: action,
                 params: {
                   channel: "ticker",
-                  symbol: instruments.map((i) => i.mappings.kraken),
-                  snapshot: true,
+                  symbol: symbols,
+                  ...(action === "subscribe" ? { snapshot: true } : {}),
                 },
               }
             : {
-                type: "subscribe",
-                product_ids: instruments.map((i) => i.mappings.coinbase),
+                type: action,
+                product_ids: symbols,
                 channels: ["ticker", "heartbeat"],
               },
         ),
       );
+    };
+    ws.sync = (desired) => {
+      instruments = desired
+        .filter((i) => supportsInstrument(i, p))
+        .slice(0, 100);
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const next = new Set(instruments.map((i) => i.mappings[p.type]));
+      send(
+        "unsubscribe",
+        [...subscribed].filter((symbol) => !next.has(symbol)),
+      );
+      send(
+        "subscribe",
+        [...next].filter((symbol) => !subscribed.has(symbol)),
+      );
+      subscribed = next;
+    };
+    ws.on("open", () => {
+      attempt = 0;
+      this.state(p.id).status = "verbonden";
+      ws.sync(this.instruments());
     });
     ws.on("message", (raw) => {
       seen = Date.now();
@@ -410,7 +550,8 @@ export class Engine {
     this.running = true;
     const generation = this.generation;
     for (const p of this.providers().filter(
-      (p) => p.enabled && ["kraken", "coinbase", "alpaca"].includes(p.type),
+      (p) =>
+        p.enabled && ["kraken", "coinbase", "alpaca", "okx"].includes(p.type),
     ))
       this.connect(p, generation);
     for (const s of this.health.values()) s.lastPoll = 0;

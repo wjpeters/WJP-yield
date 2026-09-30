@@ -3,7 +3,17 @@ export const intervals = {
   "5m": 300,
   "15m": 900,
   "1h": 3600,
+  "30m": 1800,
+  "2h": 7200,
+  "4h": 14400,
+  "6h": 21600,
+  "12h": 43200,
   "1d": 86400,
+  "1w": 604800,
+  // Calendar intervals: these nominal sizes are only for drawing extrapolation.
+  "1mo": 2629800,
+  "3mo": 7889400,
+  "1y": 31557600,
 };
 export const catalog = [
   ...[
@@ -30,6 +40,28 @@ export const catalog = [
       alpaca: `${base}/USD`,
     },
   })),
+  ...[
+    ["BTC", "Bitcoin"],
+    ["ETH", "Ethereum"],
+    ["SOL", "Solana"],
+    ["XRP", "XRP"],
+    ["ADA", "Cardano"],
+    ["DOGE", "Dogecoin"],
+    ["LINK", "Chainlink"],
+    ["AVAX", "Avalanche"],
+    ["LTC", "Litecoin"],
+  ].flatMap(([base, name]) =>
+    ["EUR", "USDC"].map((currency) => ({
+      id: `crypto:${base}:${currency}`,
+      symbol: `${base}/${currency}`,
+      name,
+      assetClass: "crypto",
+      exchange: "MULTI",
+      currency,
+      base,
+      mappings: { okx: `${base}-${currency}` },
+    })),
+  ),
   ...[
     ["AAPL", "Apple", "NASDAQ"],
     ["MSFT", "Microsoft", "NASDAQ"],
@@ -109,7 +141,7 @@ export function selectQuote(providers, quotes, now = Date.now()) {
         }
       : null;
 }
-export function normalizeCandles(rows) {
+export function normalizeCandles(rows, limit = 500) {
   const out = new Map();
   for (const c of rows) {
     if (
@@ -125,7 +157,7 @@ export function normalizeCandles(rows) {
       continue;
     out.set(c.time, c);
   }
-  return [...out.values()].sort((a, b) => a.time - b.time).slice(-500);
+  return [...out.values()].sort((a, b) => a.time - b.time).slice(-limit);
 }
 export const alpacaFeeds = [
   {
@@ -148,6 +180,15 @@ export const alpacaFeeds = [
   },
 ];
 export const adaptersInfo = [
+  {
+    type: "okx",
+    name: "OKX",
+    description:
+      "Crypto spot · Europese aansluiting · publieke WebSocket + REST",
+    classes: ["crypto"],
+    keyRequired: false,
+    website: "https://www.okx.com",
+  },
   {
     type: "alpaca",
     name: "Alpaca",

@@ -1,14 +1,39 @@
 import WebSocket from "ws";
 import { normalizeCandles } from "./domain.mjs";
 const apiRoot = "https://data.alpaca.markets";
+import { periodStart } from "./timeframes.mjs";
 const frames = {
   "1m": "1Min",
   "5m": "5Min",
   "15m": "15Min",
   "1h": "1Hour",
+  "30m": "30Min",
+  "2h": "2Hour",
+  "4h": "4Hour",
+  "6h": "6Hour",
+  "12h": "12Hour",
   "1d": "1Day",
+  "1w": "1Week",
+  "1mo": "1Month",
+  "3mo": "3Month",
+  "1y": "12Month",
 };
-const lookbackDays = { "1m": 7, "5m": 14, "15m": 30, "1h": 90, "1d": 730 };
+const lookbackDays = {
+  "1m": 7,
+  "5m": 14,
+  "15m": 30,
+  "30m": 60,
+  "1h": 90,
+  "2h": 180,
+  "4h": 365,
+  "6h": 365,
+  "12h": 730,
+  "1d": 730,
+  "1w": 3653,
+  "1mo": 7305,
+  "3mo": 7305,
+  "1y": 7305,
+};
 const number = (v) => (v == null || v === "" ? null : Number(v));
 const positive = (v) =>
   Number.isFinite(number(v)) && number(v) > 0 ? number(v) : null;
@@ -65,16 +90,28 @@ async function request(path, params, secret) {
     throw new Error("Alpaca is tijdelijk niet bereikbaar");
   }
   if (!response.ok) {
+    // Inspect only a known error category; never forward provider text or credentials.
+    const body =
+      response.status === 400 ? await response.json().catch(() => ({})) : {};
+    const invalidSymbol =
+      response.status === 400 &&
+      typeof body.message === "string" &&
+      /\binvalid symbol\b/i.test(body.message);
     const e = new Error(
-      response.status === 401
-        ? "Alpaca-sleutels ontbreken of zijn ongeldig"
-        : response.status === 403
-          ? "Alpaca: geen toegang tot deze feed; controleer je datarechten"
-          : response.status === 429
-            ? "Alpaca-aanvraaglimiet bereikt"
-            : `Alpaca antwoordt met HTTP ${response.status}`,
+      invalidSymbol
+        ? "Instrument niet gevonden bij Alpaca; controleer symbool en beurs"
+        : response.status === 400
+          ? "Alpaca: ongeldige aanvraagparameters"
+          : response.status === 401
+            ? "Alpaca-sleutels ontbreken of zijn ongeldig"
+            : response.status === 403
+              ? "Alpaca: geen toegang tot deze feed; controleer je datarechten"
+              : response.status === 429
+                ? "Alpaca-aanvraaglimiet bereikt"
+                : `Alpaca antwoordt met HTTP ${response.status}`,
     );
     e.status = response.status;
+    if (invalidSymbol) e.scope = "instrument";
     throw e;
   }
   try {
@@ -215,7 +252,10 @@ export const alpacaAdapter = {
       limit: "500",
       sort: "desc",
       start: new Date(
-        Date.now() - lookbackDays[interval] * 86400000,
+        periodStart(
+          (Date.now() - lookbackDays[interval] * 86400000) / 1000,
+          interval,
+        ) * 1000,
       ).toISOString(),
       ...(!crypto
         ? { feed: alpacaFeed(p), adjustment: "raw", currency: "USD" }

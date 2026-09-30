@@ -41,15 +41,12 @@ type Frame = {
   height: number;
 };
 type Change = { before?: Drawing; after?: Drawing };
+import { timeframes } from "./timeframes";
 const palette = ["#d4f77d", "#57c9ad", "#8aacf2", "#bd9dec", "#ef7c85"];
 const colors = ["Limoen", "Groen", "Blauw", "Paars", "Roze"];
-const steps: Record<string, number> = {
-  "1m": 60,
-  "5m": 300,
-  "15m": 900,
-  "1h": 3600,
-  "1d": 86400,
-};
+const steps: Record<string, number> = Object.fromEntries(
+  timeframes.map((f) => [f.value, f.step]),
+);
 const tools = [
   ["horizontal", Minus],
   ["trend", MoveUpRight],

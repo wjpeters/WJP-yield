@@ -70,3 +70,40 @@ SQLite WAL voor kleine configuratiewijzigingen; volume blijft bestaan bij contai
 `server/alpaca.mjs` implementeert de REST- en WebSocket-adapter. `supportsInstrument` filtert op feed, markt, US-beurs en USD voordat routing plaatsvindt. Het bestaande quote/candle-contract blijft gelijk; feed, tradeVenue, quoteAt en statsAt zijn extra bronmetadata. Een verse bid/ask of dagbar maakt een oude transactietijd nooit opnieuw actueel. REST-fallback loopt via hetzelfde aanvraagbudget als de bron-test en historie. De WebSocket gebruikt authenticatie voor subscriptions, ping/pong voor stille markten, een symbolenlimiet van 30, abonnementsupdates en gecontroleerd opnieuw verbinden. Broker/trading-API’s worden niet gebruikt.
 
 `provider-config.mjs` valideert de twee credentials en versleutelt ze als één JSON-paar in het bestaande secret-veld. Beide blijven afwezig in publieke providerobjecten. De eenmalige lokale migratie voegt een uitgeschakelde Alpaca/IEX-bron toe zonder bestaande bronnen of sleutels te vervangen. Een verwijderde Alpaca-bron keert niet terug bij herstart. Providerwijzigingen maken cache/quotes ongeldig; generation-controles verwerpen oude REST-resultaten tijdens herstart.
+
+## OKX
+
+`server/okx.mjs` is de zelfstandige publieke EEA-spotadapter. Vaste hosts beperken
+verzoeken tot marktdata; authenticatie en orderuitvoering horen bij een latere,
+aparte execution-module. `instId`, `instType`, base en quotevaluta moeten exact
+aansluiten op het domeininstrument. EUR en USDC zijn aparte instrumenten. Geen futures- of USD/stablecoin-substitutie.
+
+REST gebruikt ticker en candles. OKX-code 50011 activeert de bestaande rate-limitpauze;
+ontbrekende instrumenten krijgen een instrumentpauze. Providertekst wordt niet
+rechtstreeks doorgegeven. Ticker-`ts` is de generatietijd van de ticker, niet bewezen
+de tijd van de laatste transactie; heartbeat/pong veranderen geen koers of brontijd.
+Candles gebruiken volume in basiseenheden, milliseconden naar UTC-seconden,
+`1Dutc` voor dagen en `confirmed` voor de providerstatus van elke candle.
+
+De WebSocket gebruikt dynamische tickers-subscriptions voor actieve instrumenten,
+textuele ping/pong, een ontvangsttimeout, reconnect en generation-controles.
+De bron werkt met dezelfde routing, caching, validatie en aanvraagbudgetten als
+andere adapters. De OKX-migratie respecteert bestaande configuratie en verwijdering.
+
+## Grafiekintervallen
+
+De grafiek ondersteunt 1/5/15/30 minuten, 1/2/4/6/12 uur, dag, week, maand, kwartaal en jaar. `server/timeframes.mjs` kiest native bronintervallen en bundelt alleen echte OHLC-candles van dezelfde provider waar nodig. Open = eerste, close = laatste, high/low = extrema, volume = som (onbekend blijft onbekend). Kalendermaanden, kwartalen en jaren gebruiken echte UTC-kalendergrenzen; samengestelde weken beginnen maandag. Native bars behouden de providerkalender (Alpaca gebruikt zijn beurskalender).
+
+Kraken levert native tot week; maand/kwartaal/jaar gebruiken maximaal 720 dagcandles. Coinbase levert maximaal 300 candles en gebruikt dagbars voor week en langer. Twelve Data bundelt maandbars voor kwartaal/jaar en 2u/4u voor 6u/12u. OKX levert native UTC-bars tot kwartaal; jaar bundelt maandbars. Alpaca gebruikt native 1Week/1Month/3Month/12Month en een langere terugblik. Geen extra upstream calls of wijziging van aanvraagbudgetten.
+
+Normalisatie kapt pas na bundeling af op 500 resultaatcandles. De oudste samengestelde candle krijgt `partial` als bronhistorie na het begin van die periode begint; de interface vermeldt dat. `confirmed: false` houdt lopende samengestelde periodes en onvoltooide OKX-bronbars herkenbaar. Ontbrekende handelsperiodes worden niet ingevuld. Dit is een begrensde grafiek, geen volledige historische data-export. De UI en tekentools delen `src/timeframes.ts`; nominale maand/jaarsduur wordt alleen gebruikt voor extrapolatie buiten geladen tekenankers.
+
+Primaire intervaldocumentatie: [Kraken OHLC](https://docs.kraken.com/api-reference/market-data/get-ohlc-data), [Coinbase candles](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles), [OKX](https://my.okx.com/docs-v5/en/), [Alpaca bars](https://docs.alpaca.markets/us/reference/stockbars), [Twelve Data SDK](https://github.com/twelvedata/twelvedata-python).
+
+## Brongebonden instrumentcatalogus
+
+`server/catalog.mjs` verwerkt providerreferentielijsten naar het bestaande instrumentcontract. `GET /api/catalog` accepteert `q`, `provider`, `assetClass`, `offset` en `limit` (maximaal 100) en geeft `items`, `total` en bronstatus terug. Refresh is asynchroon; de client pollt alleen zolang broncatalogi worden opgehaald. `POST /api/catalog/refresh` vraagt expliciete verversing, `POST /api/catalog/instruments` registreert uitsluitend een serverbekend ID voor de bestaande watchlist-flow. Brondata wordt gevalideerd; foutantwoorden en sleutels worden niet doorgegeven.
+
+Cache per provider in `catalog:<id>` met type/feed en ophaaltijd. Twelve Data-categorieën worden afzonderlijk behouden bij gedeeltelijke fouten, zonder dubbele serialisatie van dezelfde records. Catalogi staan buiten de realtime snapshot. `discovered-instruments` bewaart alleen geselecteerde/bestaande instrumenten met bron-ID, feed en exacte symboolmapping. Gelijke crypto-basis/quote en gelijke aandelenbeurs/symbool/valuta behouden stabiele IDs; instrumenten worden niet over quotevaluta of beurs heen samengevoegd. Nieuwe providerinstanties krijgen geen ongeteste cataloguskoppeling. Verdwenen geregistreerde paren verliezen hun bronmapping zonder de watchlist of grafiekannotaties te verwijderen.
+
+`Engine.reserveBudget` wordt gedeeld door koersen en catalogusrequests. Catalogusontvangst vernieuwt geen koerstijd, latency of live-status. Kraken/Coinbase-streams synchroniseren actieve symbolen en sturen subscribe/unsubscribe, met maximaal 100 actieve instrumenten. Alle Alpaca-catalogusverzoeken zijn GET op vaste assets-endpoints; credentials blijven in serverheaders.

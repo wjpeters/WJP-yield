@@ -117,6 +117,37 @@ export function createStore(dir) {
       ]);
     put("migration:alpaca-v1", true);
   }
+  if (!get("migration:okx-v1", false)) {
+    const providers = get("providers", []);
+    if (!providers.some((p) => p.type === "okx") && providers.length < 20)
+      put("providers", [
+        ...providers,
+        {
+          id: randomUUID(),
+          type: "okx",
+          name: "OKX",
+          priority: 50,
+          enabled: true,
+          rpm: 60,
+        },
+      ]);
+    put("migration:okx-v1", true);
+  }
+  if (!get("migration:okx-spot-pairs-v1", false)) {
+    const lists = get("watchlists", []);
+    if (lists.length < 20 && get("providers", []).some((p) => p.type === "okx"))
+      put("watchlists", [
+        ...lists,
+        {
+          id: randomUUID(),
+          name: "OKX spot",
+          instruments: ["BTC", "ETH", "SOL"].flatMap((base) =>
+            ["EUR", "USDC"].map((currency) => `crypto:${base}:${currency}`),
+          ),
+        },
+      ]);
+    put("migration:okx-spot-pairs-v1", true);
+  }
   return {
     db,
     get,
@@ -126,11 +157,20 @@ export function createStore(dir) {
     id: randomUUID,
     providers: () => get("providers", []),
     instruments: () =>
-      [...catalog, ...get("instruments", [])].map((i) => ({
+      [
+        ...new Map(
+          [
+            ...catalog,
+            ...get("instruments", []),
+            ...get("discovered-instruments", []),
+          ].map((i) => [i.id, i]),
+        ).values(),
+      ].map((i) => ({
         ...i,
         mappings: {
           ...i.mappings,
-          ...(["stock", "etf"].includes(i.assetClass) &&
+          ...(!i.catalogSources &&
+          ["stock", "etf"].includes(i.assetClass) &&
           i.currency === "USD" &&
           ["NASDAQ", "NYSE", "NYSEARCA", "AMEX", "ARCA", "BATS"].includes(
             i.exchange.toUpperCase(),

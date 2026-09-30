@@ -9,7 +9,6 @@
 
 Activatie: Databronnen → Alpaca bewerken → API Key ID en Secret Key lokaal invullen → gewenste feed kiezen → inschakelen → Opslaan → Test. De REST-test is geen bewijs dat alle symbolen, realtimefeeds of abonnementen beschikbaar zijn; controleer daarna bronstatus en koerstijden in de terminal. Zie README voor feeddekking en limieten.
 
-
 ## Formulierherstel (29 september 2026)
 
 - Sleutelvelden verplaatst naar een gezamenlijke sectie bovenaan; op desktop naast elkaar en op mobiel onder elkaar.

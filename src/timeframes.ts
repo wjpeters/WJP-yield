@@ -1,0 +1,16 @@
+export const timeframes = [
+  { value: "1m", label: "1m", name: "1 minuut", step: 60 },
+  { value: "5m", label: "5m", name: "5 minuten", step: 300 },
+  { value: "15m", label: "15m", name: "15 minuten", step: 900 },
+  { value: "30m", label: "30m", name: "30 minuten", step: 1800 },
+  { value: "1h", label: "1u", name: "1 uur", step: 3600 },
+  { value: "2h", label: "2u", name: "2 uur", step: 7200 },
+  { value: "4h", label: "4u", name: "4 uur", step: 14400 },
+  { value: "6h", label: "6u", name: "6 uur", step: 21600 },
+  { value: "12h", label: "12u", name: "12 uur", step: 43200 },
+  { value: "1d", label: "1D", name: "1 dag", step: 86400 },
+  { value: "1w", label: "1W", name: "1 week", step: 604800 },
+  { value: "1mo", label: "1M", name: "1 maand", step: 2629800 },
+  { value: "3mo", label: "3M", name: "1 kwartaal", step: 7889400 },
+  { value: "1y", label: "1J", name: "1 jaar", step: 31557600 },
+];

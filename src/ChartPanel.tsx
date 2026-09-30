@@ -24,22 +24,27 @@ import { api, price, percent, time } from "./api";
 import { sma, ema, rsi } from "./indicators";
 import { Dot, SymbolMark } from "./ui";
 import type { Instrument, Quote, Candle, History } from "./types";
+import { timeframes } from "./timeframes";
 const EMPTY_CANDLES: Candle[] = [];
 type Props = {
   instrument: Instrument;
   quote: Quote | null;
+  favorite: boolean;
+  onToggleFavorite: () => void;
   onProviders: () => void;
   connected: boolean;
 };
 export default function ChartPanel({
   instrument: i,
   quote: q,
+  favorite,
+  onToggleFavorite,
   onProviders,
   connected,
 }: Props) {
   const [interval, setIntervalValue] = useState(() => {
     const v = localStorage.getItem("yield-interval");
-    return ["1m", "5m", "15m", "1h", "1d"].includes(v ?? "") ? v! : "1h";
+    return timeframes.some((frame) => frame.value === v) ? v! : "1h";
   });
   const [mode, setMode] = useState<"candles" | "line">(() =>
     localStorage.getItem("yield-chart") === "line" ? "line" : "candles",
@@ -132,7 +137,7 @@ export default function ChartPanel({
       },
       timeScale: {
         borderColor: "#242a36",
-        timeVisible: true,
+        timeVisible: false,
         secondsVisible: false,
         rightOffset: 5,
       },
@@ -228,6 +233,12 @@ export default function ChartPanel({
   }, [mode, indicators]);
   useEffect(() => {
     if (!history || !main.current || !volume.current) return;
+    chart.current?.applyOptions({
+      timeScale: {
+        timeVisible:
+          (timeframes.find((f) => f.value === interval)?.step ?? 3600) < 86400,
+      },
+    });
     const candles = history.candles;
     const digits = (candles.at(-1)?.close ?? 1) < 1 ? 4 : 2;
     main.current.applyOptions({
@@ -305,7 +316,24 @@ export default function ChartPanel({
               {i.exchange === "MULTI" ? "Crypto spot" : i.exchange}
             </div>
           </div>
-          <Star size={17} className="muted star" />
+          <button
+            className={`star-toggle ${favorite ? "active" : ""}`}
+            type="button"
+            aria-label={
+              favorite ? "Verwijder uit favorieten" : "Voeg toe aan favorieten"
+            }
+            aria-pressed={favorite}
+            title={
+              favorite ? "Verwijder uit favorieten" : "Voeg toe aan favorieten"
+            }
+            onClick={onToggleFavorite}
+          >
+            <Star
+              size={17}
+              className="star"
+              fill={favorite ? "currentColor" : "none"}
+            />
+          </button>
         </div>
         <div className="headline-price">
           <strong>{price(q?.price, q && q.price < 1 ? 4 : 2)}</strong>
@@ -326,16 +354,13 @@ export default function ChartPanel({
       </div>
       <div className="chart-toolbar">
         <div className="timeframes">
-          {[
-            ["1m", "1m"],
-            ["5m", "5m"],
-            ["15m", "15m"],
-            ["1h", "1u"],
-            ["1d", "1D"],
-          ].map(([v, label]) => (
+          {timeframes.map(({ value: v, label, name }) => (
             <button
               key={v}
               className={interval === v ? "active" : ""}
+              title={`${name} per candle`}
+              aria-label={`${name} per candle`}
+              aria-pressed={interval === v}
               onClick={() => setIntervalValue(v)}
             >
               {label}
@@ -463,7 +488,7 @@ export default function ChartPanel({
       <div className="chart-caption">
         <span>
           {history
-            ? `${history.provider} · ${history.venue} · Candles via REST · 30s`
+            ? `${history.provider} · ${history.venue} · ${history.aggregated ? "Gebundelde candles" : "Candles via REST"} · 30s`
             : "Historische candles"}{" "}
           {history && time(history.fetchedAt)}
         </span>
@@ -473,6 +498,11 @@ export default function ChartPanel({
             : history?.failures.length
               ? "Historie via fallback"
               : "Tijden in UTC"}{" "}
+          {history?.candles.some((c) => c.partial) && (
+            <span title="De databron levert voor de oudste gebundelde candle niet de hele periode. OHLC en volume gelden alleen voor de beschikbare historie.">
+              · Eerste candle deels beschikbaar{" "}
+            </span>
+          )}
           <a
             href="https://www.tradingview.com/"
             target="_blank"

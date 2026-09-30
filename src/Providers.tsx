@@ -141,6 +141,12 @@ export default function Providers({ state, refresh, notify }: Props) {
                   </span>
                 </div>
                 {p.health.error && <p className="warning">{p.health.error}</p>}
+                {p.health.instrumentIssues?.map((issue) => (
+                  <p className="warning" key={issue.instrumentId}>
+                    {issue.error}. Nieuwe poging na {time(issue.retryAt)}.
+                    Andere instrumenten blijven actief.
+                  </p>
+                ))}
                 {testResults[p.id] && (
                   <p className="test-result" role="status">
                     {testResults[p.id]}
@@ -234,9 +240,10 @@ export default function Providers({ state, refresh, notify }: Props) {
       <div className="provider-footnote">
         <KeyRound size={16} />
         <p>
-          Kraken en Coinbase werken zonder sleutel. Alpaca biedt Amerikaanse
-          aandelen, ETF’s en crypto; Twelve Data voegt andere markten toe.
-          Dekking en limieten hangen af van de gekozen feed en je abonnement.
+          OKX, Kraken en Coinbase werken zonder sleutel. Alpaca biedt
+          Amerikaanse aandelen, ETF’s en crypto; Twelve Data voegt andere
+          markten toe. Dekking en limieten hangen af van de gekozen feed en je
+          abonnement.
         </p>
         <a
           href="https://docs.alpaca.markets/us/docs/market-data-faq"
@@ -324,6 +331,13 @@ export default function Providers({ state, refresh, notify }: Props) {
                   />
                 </label>
               </div>
+              {type === "okx" && (
+                <p className="muted small-text">
+                  Publieke spotmarktdata via OKX Europa. Geen sleutel nodig.
+                  EUR- en USDC-paren zijn afzonderlijke instrumenten. Orders
+                  plaatsen wordt later toegevoegd.
+                </p>
+              )}
               {adapter?.keyRequired && (
                 <section
                   className="provider-credentials"
@@ -400,7 +414,13 @@ export default function Providers({ state, refresh, notify }: Props) {
                     min={1}
                     max={6000}
                     defaultValue={
-                      edit === "new" ? (adapter?.feeds ? 120 : 8) : edit.rpm
+                      edit === "new"
+                        ? adapter?.feeds
+                          ? 120
+                          : adapter?.keyRequired
+                            ? 8
+                            : 60
+                        : edit.rpm
                     }
                     required
                   />

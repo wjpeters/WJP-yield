@@ -7,6 +7,8 @@ export type Instrument = {
   currency: string;
   base?: string;
   mappings: Record<string, string>;
+  providerIds?: string[];
+  verified?: boolean;
 };
 export type Quote = {
   instrumentId: string;
@@ -45,6 +47,12 @@ export type Provider = {
     openUntil: number;
     error: string | null;
     usedThisMinute: number;
+    instrumentIssues?: {
+      instrumentId: string;
+      symbol: string;
+      error: string;
+      retryAt: number;
+    }[];
   };
 };
 export type Watchlist = { id: string; name: string; instruments: string[] };
@@ -82,6 +90,8 @@ export type Candle = {
   low: number;
   close: number;
   volume: number | null;
+  partial?: boolean;
+  confirmed?: boolean;
 };
 export type History = {
   candles: Candle[];
@@ -89,6 +99,8 @@ export type History = {
   providerId: string;
   venue: string;
   interval: string;
+  sourceInterval: string;
+  aggregated: boolean;
   fetchedAt: number;
   cached: boolean;
   failures: { provider: string; error: string }[];
@@ -102,4 +114,21 @@ export const classNames: Record<string, string> = {
   index: "Indices",
   bond: "Obligaties",
   future: "Futures",
+};
+
+export type CatalogResult = {
+  items: Instrument[];
+  total: number;
+  offset: number;
+  limit: number;
+  sources: {
+    id: string;
+    name: string;
+    count: number;
+    fetchedAt: number | null;
+    stale: boolean;
+    loading: boolean;
+    error: string | null;
+    warnings: string[];
+  }[];
 };

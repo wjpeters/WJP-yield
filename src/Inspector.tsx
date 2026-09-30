@@ -187,46 +187,58 @@ export function ProviderTable({
             </tr>
           </thead>
           <tbody>
-            {state.providers.map((p) => (
-              <tr key={p.id}>
-                <td>
-                  <span className={`provider-logo ${p.type}`}>
-                    {p.name.slice(0, 1)}
-                  </span>
-                  <strong>{p.name}</strong>
-                </td>
-                <td className="muted">
-                  {state.adapters.find((a) => a.type === p.type)?.classes
-                    .length === 1
-                    ? state.adapters.find((a) => a.type === p.type)?.classes[0]
-                    : "Multi-asset"}
-                </td>
-                <td>
-                  <span className="inline">
-                    <Dot
-                      good={
-                        p.enabled &&
-                        ["streaming", "REST"].includes(p.health.status)
-                      }
-                      warn={p.enabled && !!p.health.error}
-                    />
-                    {p.health.status}
-                  </span>
-                </td>
-                <td className="mono muted">{time(p.health.lastReceived)}</td>
-                <td className="mono">
-                  {p.health.latencyMs == null
-                    ? "—"
-                    : `${p.health.latencyMs} ms`}
-                </td>
-                <td className="mono muted">
-                  {p.health.usedThisMinute} / {p.rpm}
-                </td>
-                <td>
-                  <span className="priority">{p.priority}</span>
-                </td>
-              </tr>
-            ))}
+            {[...state.providers]
+              .sort((a, b) => a.priority - b.priority)
+              .map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <span className={`provider-logo ${p.type}`}>
+                      {p.name.slice(0, 1)}
+                    </span>
+                    <strong>{p.name}</strong>
+                  </td>
+                  <td className="muted">
+                    {state.adapters.find((a) => a.type === p.type)?.classes
+                      .length === 1
+                      ? state.adapters.find((a) => a.type === p.type)
+                          ?.classes[0]
+                      : "Multi-asset"}
+                  </td>
+                  <td>
+                    <span className="inline">
+                      <Dot
+                        good={
+                          p.enabled &&
+                          ["streaming", "REST"].includes(p.health.status)
+                        }
+                        warn={p.enabled && !!p.health.error}
+                      />
+                      {p.health.status}
+                    </span>
+                    {p.health.instrumentIssues?.map((issue) => (
+                      <div
+                        className="warning small-text"
+                        key={issue.instrumentId}
+                        title={issue.error}
+                      >
+                        {issue.symbol}: controleer symbool / beurs
+                      </div>
+                    ))}
+                  </td>
+                  <td className="mono muted">{time(p.health.lastReceived)}</td>
+                  <td className="mono">
+                    {p.health.latencyMs == null
+                      ? "—"
+                      : `${p.health.latencyMs} ms`}
+                  </td>
+                  <td className="mono muted">
+                    {p.health.usedThisMinute} / {p.rpm}
+                  </td>
+                  <td>
+                    <span className="priority">{p.priority}</span>
+                  </td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>

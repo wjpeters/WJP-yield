@@ -7,13 +7,16 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { createStore } from "./store.mjs";
 import { registerDrawingRoutes } from "./drawings.mjs";
+import { registerWatchlistRoutes } from "./watchlists.mjs";
 import { Engine } from "./engine.mjs";
+import { Catalog, registerCatalogRoutes } from "./catalog.mjs";
 import { adaptersInfo, intervals } from "./domain.mjs";
 import { adapters, supportsInstrument } from "./adapters.mjs";
 import { configureProvider } from "./provider-config.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const store = createStore(process.env.DATA_DIR || resolve(root, "data"));
 const engine = new Engine(store);
+const catalog = new Catalog(store, { reserve: (p) => engine.reserveBudget(p) });
 const app = Fastify({ logger: false, bodyLimit: 32768 });
 const origins = new Set([
   "http://localhost:4310",
@@ -64,6 +67,7 @@ await app.register(websocket, { options: { maxPayload: 1024 } });
 app.get("/api/health", async () => ({ ok: true, version: "0.1.0" }));
 app.get("/api/state", async () => engine.snapshot());
 app.get("/api/adapters", async () => adaptersInfo);
+registerCatalogRoutes(app, catalog);
 app.get("/api/candles", async (req, reply) => {
   const q = z
     .object({
@@ -125,8 +129,10 @@ app.post("/api/providers/:id/test", async (req, reply) => {
       .code(400)
       .send({ error: "Geen passend instrument voor deze feed" });
   try {
-    const q = await engine.request(p, (key) =>
-      adapters[p.type].quote(i, null, key, p),
+    const q = await engine.request(
+      p,
+      (key) => adapters[p.type].quote(i, null, key, p),
+      i,
     );
     if (generation !== engine.generation)
       return reply
@@ -142,53 +148,9 @@ app.post("/api/providers/:id/test", async (req, reply) => {
     return reply.code(503).send({ error: e.message });
   }
 });
-const watchSchema = z.object({
-  name: z.string().trim().min(1).max(40),
-  instruments: z.array(z.string()).max(50),
-});
-app.post("/api/watchlists", async (req, reply) => {
-  const body = watchSchema.parse(req.body);
-  if (store.watchlists().length >= 20)
-    return reply.code(400).send({ error: "Maximaal 20 watchlists" });
-  if (
-    body.instruments.some((id) => !store.instruments().some((i) => i.id === id))
-  )
-    return reply.code(400).send({ error: "Onbekend instrument" });
-  const w = {
-    ...body,
-    instruments: [...new Set(body.instruments)],
-    id: store.id(),
-  };
-  store.put("watchlists", [...store.watchlists(), w]);
-  return w;
-});
-app.put("/api/watchlists/:id", async (req, reply) => {
-  const body = watchSchema.parse(req.body);
-  if (
-    body.instruments.some((id) => !store.instruments().some((i) => i.id === id))
-  )
-    return reply.code(400).send({ error: "Onbekend instrument" });
-  const lists = store.watchlists();
-  if (!lists.some((w) => w.id === req.params.id))
-    return reply.code(404).send({ error: "Watchlist niet gevonden" });
-  store.put(
-    "watchlists",
-    lists.map((w) =>
-      w.id === req.params.id
-        ? { ...w, ...body, instruments: [...new Set(body.instruments)] }
-        : w,
-    ),
-  );
-  return { ok: true };
-});
-app.delete("/api/watchlists/:id", async (req, reply) => {
-  if (store.watchlists().length <= 1)
-    return reply.code(400).send({ error: "Behoud minimaal één watchlist" });
-  store.put(
-    "watchlists",
-    store.watchlists().filter((w) => w.id !== req.params.id),
-  );
-  return { ok: true };
+registerWatchlistRoutes(app, store, (ids) => {
+  engine.releaseUnwatched(ids);
+  catalog.indexRows = null;
 });
 const instrumentSchema = z.object({
   symbol: z
@@ -225,6 +187,7 @@ app.post("/api/instruments", async (req, reply) => {
     return reply.code(400).send({ error: "Maximaal 200 eigen instrumenten" });
   const item = { ...body, id, mappings: { twelve: body.symbol } };
   store.put("instruments", [...custom, item]);
+  catalog.indexRows = null;
   return item;
 });
 await app.register(async (scope) => registerDrawingRoutes(scope, store));

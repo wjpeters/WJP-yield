@@ -17,8 +17,18 @@ import { Dot } from "./ui";
 export default function App() {
   const { state, connected, error, refresh } = useTerminal();
   const [page, setPage] = useState<"terminal" | "providers">("terminal");
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("yield-favorites") ?? "[]");
+      return Array.isArray(saved)
+        ? saved.filter((id): id is string => typeof id === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  });
   const [selected, setSelected] = useState(
-    () => localStorage.getItem("yield-selected") || "crypto:BTC:USD",
+    () => localStorage.getItem("yield-selected") ?? "crypto:BTC:USD",
   );
   const [toast, setToast] = useState("");
   useEffect(() => {
@@ -26,6 +36,9 @@ export default function App() {
     const timer = setTimeout(() => setToast(""), 6000);
     return () => clearTimeout(timer);
   }, [toast]);
+  useEffect(() => {
+    localStorage.setItem("yield-favorites", JSON.stringify(favorites));
+  }, [favorites]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (
@@ -44,13 +57,19 @@ export default function App() {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, []);
-  const instrument =
-    state?.instruments.find((i) => i.id === selected) ?? state?.instruments[0];
+  const instrument = state?.instruments.find((i) => i.id === selected);
   const quote = instrument ? (state?.quotes[instrument.id] ?? null) : null;
   const choose = (id: string) => {
     setSelected(id);
     localStorage.setItem("yield-selected", id);
     setPage("terminal");
+  };
+  const toggleFavorite = (id: string) => {
+    setFavorites((current) => {
+      return current.includes(id)
+        ? current.filter((favorite) => favorite !== id)
+        : [...current, id];
+    });
   };
   return (
     <div className="app">
@@ -91,16 +110,7 @@ export default function App() {
       {page === "terminal" && (
         <div className="ticker-strip">
           {state?.instruments
-            .filter((i) =>
-              [
-                "BTC/USD",
-                "ETH/USD",
-                "SOL/USD",
-                "AAPL",
-                "MSFT",
-                "XAU/USD",
-              ].includes(i.symbol),
-            )
+            .filter((i) => favorites.includes(i.id))
             .map((i) => {
               const q = state.quotes[i.id];
               return (
@@ -125,6 +135,14 @@ export default function App() {
                 </button>
               );
             })}
+          {state &&
+            !favorites.some((id) =>
+              state.instruments.some((i) => i.id === id),
+            ) && (
+              <span className="ticker-empty">
+                Markeer een instrument met de ster om het hier vast te zetten
+              </span>
+            )}
         </div>
       )}
       {!connected && state && (
@@ -144,23 +162,41 @@ export default function App() {
         </div>
       ) : page === "providers" ? (
         <Providers state={state} refresh={refresh} notify={setToast} />
-      ) : instrument ? (
+      ) : (
         <main className="terminal">
           <div className="terminal-grid">
             <Watchlist
               state={state}
-              selected={instrument.id}
+              selected={instrument?.id ?? ""}
               onSelect={choose}
               refresh={refresh}
               notify={setToast}
             />
-            <ChartPanel
-              instrument={instrument}
-              quote={quote}
-              onProviders={() => setPage("providers")}
-              connected={connected}
-            />
-            <Inspector instrument={instrument} quote={quote} state={state} />
+            {instrument ? (
+              <>
+                <ChartPanel
+                  instrument={instrument}
+                  quote={quote}
+                  favorite={favorites.includes(instrument.id)}
+                  onToggleFavorite={() => toggleFavorite(instrument.id)}
+                  onProviders={() => setPage("providers")}
+                  connected={connected}
+                />
+                <Inspector
+                  instrument={instrument}
+                  quote={quote}
+                  state={state}
+                />
+              </>
+            ) : (
+              <section className="panel empty-chart">
+                <ChartCandlestick size={36} />
+                <h2>Kies je volgende markt</h2>
+                <p>
+                  Selecteer een instrument of voeg er een toe aan je watchlist.
+                </p>
+              </section>
+            )}
           </div>
           <ProviderTable state={state} onManage={() => setPage("providers")} />
           <div className="workspace-note">
@@ -174,7 +210,7 @@ export default function App() {
             </span>
           </div>
         </main>
-      ) : null}
+      )}
       <footer>
         <span>
           <Dot good={connected} warn={!connected} />
