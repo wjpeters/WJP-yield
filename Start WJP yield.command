@@ -11,10 +11,10 @@ if ! rtk proxy docker info >/dev/null 2>&1; then
 fi
 rtk proxy docker compose --project-directory "$project_dir" up --build -d
 for attempt in {1..30}; do
-  if rtk proxy curl --fail --silent http://localhost:4310/api/health >/dev/null; then
-    rtk proxy open http://localhost:4310
+  if rtk proxy curl --fail --silent http://localhost:4311/api/firm/health >/dev/null; then
+    rtk proxy open http://localhost:4311
     exit 0
   fi
   rtk proxy sleep 1
 done
-print 'De terminal start nog. Open http://localhost:4310 zodra Docker gereed is.'
+print 'WJP Yield start nog. Open http://localhost:4311 voor Firm of http://localhost:4310 voor de terminal.'

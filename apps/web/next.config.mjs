@@ -1,0 +1,2 @@
+const upstream=process.env.WJP_API_URL || "http://firm-api:8000";
+export default { output:"standalone", poweredByHeader:false, async rewrites(){return [{source:"/api/firm/:path*",destination:upstream+"/api/firm/:path*"}]}, async headers(){return [{source:"/:path*",headers:[{key:"X-Content-Type-Options",value:"nosniff"},{key:"Referrer-Policy",value:"no-referrer"},{key:"X-Frame-Options",value:"DENY"}]}]} };

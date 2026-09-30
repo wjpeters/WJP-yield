@@ -1,4 +1,12 @@
 name: wjp-yield
+x-firm-config: &firm-config
+  WJP_ENV: local
+  WJP_ORG_ID: wjp-yield
+  WJP_TRADING_MODE: paper
+  WJP_DATABASE_URL: postgresql://wjp_api@postgres:5432/wjp_local
+  WJP_REDIS_URL: redis://redis:6379/0
+  WJP_PROVIDER: disabled
+  WJP_ALLOWED_ORIGIN: http://localhost:4311
 services:
   terminal:
     build: .
@@ -17,9 +25,116 @@ services:
       - ALL
     mem_limit: 768m
     cpus: 2
+  postgres:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_DB: wjp_local
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - firm-postgres-local:/var/lib/postgresql
+    networks: [state]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wjp_local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8.2-bookworm
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [state]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/data, /tmp]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  firm-migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: wjp-yield-firm-api
+    command: ["python", "-m", "services.firm.migrate"]
+    environment:
+      <<: *firm-config
+      WJP_DATABASE_ADMIN_URL: postgresql://postgres@postgres:5432/wjp_local
+    networks: [state]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  firm-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: wjp-yield-firm-api
+    environment: *firm-config
+    ports: ["127.0.0.1:4312:8000"]
+    networks: [default, state]
+    depends_on:
+      firm-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/firm/health',timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  firm-scheduler:
+    image: wjp-yield-firm-api
+    command: ["python", "-m", "services.firm.scheduler"]
+    environment: *firm-config
+    networks: [state]
+    depends_on:
+      firm-api:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  firm-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      WJP_API_URL: http://firm-api:8000
+      WJP_TERMINAL_PUBLIC_URL: http://localhost:4310
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/firm/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    ports: ["127.0.0.1:4311:3000"]
+    depends_on:
+      firm-api:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 volumes:
   yield-data:
+  firm-postgres-local:
 networks:
+  state:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${WJP_STATE_SUBNET:-10.233.93.0/28}
   default:
     ipam:
       config:

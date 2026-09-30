@@ -1,8 +1,18 @@
 # WJP yield
 
-Een zelfstandige, lokale market research terminal. Volledig nieuw gebouwd op 29 september 2026, zonder code of ontwerpen uit andere projecten. Alleen lokaal, buiten iCloud.
+Een zelfstandige lokale market research terminal, uitgebreid met een onderzoeksfirma en Strategie-lab op 30 september 2026. Alleen lokaal, buiten iCloud. De bestaande terminal blijft beschikbaar.
 
-**Open de terminal: [localhost:4310](http://localhost:4310).**
+**Open [Firm en Strategie-lab](http://localhost:4311), of [Terminal](http://localhost:4310).**
+
+## Firm en Strategie-lab
+
+- Acht geregistreerde onderzoeksrollen, vier ingeschakeld, met doelen, taken, review, begrensde delegatie en budgetten.
+- PostgreSQL bewaart de organisatie, configuraties en een append-only Journal met hashketen. De researchscheduler werkt buiten de browser.
+- Versiegebonden EMA- en Donchian-strategieën, echte publieke OKX-spotdatasets, kostenbacktests en drie chronologische OOS-vensters.
+- Bots kunnen worden geconfigureerd en als DRAFT opgeslagen. De botworker en automatische uitvoering zijn vervolgwerk.
+- TypeSafe System One en OpenRouter System One zijn voorbereid voor Jev. Beide echte routes zijn nog uitgeschakeld; de duurzame providerbudgetkoppeling staat open.
+
+Lees het [fase 1-plan](docs/PHASE-1-STRATEGY-LAB.md), de [opleverstatus](STATUS.md), de [Firm-architectuur](docs/FIRM-ARCHITECTURE.md) en de [onafhankelijke review](REVIEW.md). De volledige masterwens is bewaard in [de bronspecificatie](docs/AUTONOMOUS-FIRM-SPEC-2026-09-30.md). Dit is de lokale onderzoeksbasis; 24/7 paper/OKX-demo, echte AI-runs en Hostinger-productie zijn nog niet geleverd.
 
 ## Starten
 
@@ -12,7 +22,7 @@ Dubbelklik op `Start WJP yield.command`, of voer vanuit deze map uit:
 rtk proxy docker compose up --build -d
 ```
 
-Docker Desktop moet draaien. De terminal is uitsluitend gebonden aan `127.0.0.1:4310`. Automatische containerherstart staat aan. Stoppen: `rtk proxy docker compose stop`. Watchlists en providerinstellingen blijven bewaard in de lokale Docker-volume `wjp-yield_yield-data`. Verwijder deze volume niet als je gegevens wilt behouden.
+Docker Desktop moet draaien. De lokale services zijn uitsluitend gebonden aan `127.0.0.1`: Terminal op 4310, Firm op 4311 en Owner API op 4312. Automatische containerherstart staat aan. Stoppen: `rtk proxy docker compose stop`. Watchlists en providerinstellingen blijven bewaard in de lokale Docker-volume `wjp-yield_yield-data`. Firm-state staat apart in `wjp-yield_firm-postgres-local`. Verwijder deze volumes niet als je gegevens wilt behouden. PostgreSQL en Redis hebben geen hostpoort. De interne trust-auth is uitsluitend voor deze lokale opstelling; gebruik deze Compose-configuratie niet als publieke VPS-configuratie.
 
 ## Wat werkt
 
@@ -100,7 +110,7 @@ rtk proxy npm run server
 rtk proxy npm run dev
 ```
 
-De ontwikkelinterface draait op 4311; de lokale API op 4310. Stop eerst de Docker-app als je de lokale Node-server op dezelfde poort wilt gebruiken. Lokale devdata staat in `data/`, buiten Git en buiten iCloud.
+De Vite-terminalontwikkelinterface draait op 4311; de lokale Node-API op 4310. Firm gebruikt in Docker ook 4311. Stop Firm of kies een andere Vite-poort bij terminalontwikkeling. Stop eerst de Docker-app als je de lokale Node-server op dezelfde poort wilt gebruiken. Lokale devdata staat in `data/`, buiten Git en buiten iCloud.
 
 Lees [de architectuur](docs/ARCHITECTURE.md) voor het providercontract en [de ontwerpspecificatie](docs/DESIGN.md) voor de visuele basis.
 
@@ -153,3 +163,18 @@ Alle research-aanvragen lopen server-side via vaste openbare HTTPS-endpoints, zo
 Primaire documentatie: [CoinGecko coin data](https://docs.coingecko.com/reference/coins-id), [globale marktdata](https://docs.coingecko.com/reference/crypto-global), [CoinGecko-limieten](https://docs.coingecko.com/docs/errors-and-rate-limits), [Alternative.me API en scope](https://alternative.me/crypto/fear-and-greed-index/#api), [SEC EDGAR API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces), [SEC ticker/beursregister](https://www.sec.gov/files/company_tickers_exchange.json), [GDELT DOC API](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/).
 
 De nieuws-RSS-terugval gebruikt de openbare [Google Nieuws-feed](https://news.google.com/rss/search?q=Bitcoin+crypto+when%3A7d&hl=en-US&gl=US&ceid=US%3Aen). De server verwerkt alleen titel, uitgever, veilige link en feedtijd; geen volledige artikelen of HTML. XML met DTD/entities en te grote feeds wordt geweigerd.
+
+
+## Firm ontwikkelen en controleren
+
+```sh
+rtk proxy npm --prefix apps/web ci
+rtk proxy npm --prefix apps/web run check
+rtk proxy docker compose build firm-api firm-web
+rtk proxy docker compose run --rm --no-deps -e WJP_TEST_DATABASE_URL=postgresql://wjp_api@postgres:5432/wjp_local firm-api python -m pytest -q -p no:cacheprovider apps/api/tests services/trading/tests
+rtk proxy python3 ops/wjp.py status
+```
+
+De PostgreSQL-service moet draaien vóór de integratietests. Tests gebruiken aparte organisaties. De runtime-role is geen migratiebeheerder. De beheerhulp is alleen-lezen; hij kan geen orders uitvoeren, secrets exporteren of een shell openen. Een productie-Owner-token mag alleen uit een lokaal bestand buiten iCloud komen. Alleen placeholderconfiguratie hoort in Git.
+
+De compose-healthchecks controleren de API-databaseverbinding en Next-proxy. Voor een betaalde provider of deployment eerst de nog open gates in het fase 1-plan afmaken. De frontendproxy gebruikt bij de build `WJP_API_URL` (standaard http://firm-api:8000). De servicebenaming blijft gelijk bij de geplande VPS-images. `WJP_TERMINAL_PUBLIC_URL` bepaalt bij runtime de zichtbare terminal-link.

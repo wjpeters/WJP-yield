@@ -3,6 +3,7 @@ import {
   ChartCandlestick,
   ChartNoAxesCombined,
   Database,
+  BriefcaseBusiness,
   Radio,
   ArrowUpRight,
   Command,
@@ -123,6 +124,9 @@ export default function App() {
             className={page === "providers" ? "active" : ""}
           >
             <Database size={18} /> Databronnen
+          </button>
+          <button onClick={() => window.location.assign("http://localhost:4311")}>
+            <BriefcaseBusiness size={18} /> Firm
           </button>
         </nav>
         <div className="header-right">

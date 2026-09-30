@@ -3,3 +3,8 @@ dist
 data
 .git
 .env*
+
+**/node_modules
+**/.next
+**/__pycache__
+**/.pytest_cache

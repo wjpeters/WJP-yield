@@ -6,3 +6,9 @@ data/
 *.log
 .DS_Store
 *.tsbuildinfo
+
+**/node_modules/
+**/.next/
+**/__pycache__/
+**/.pytest_cache/
+.venv/
